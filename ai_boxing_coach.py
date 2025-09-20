@@ -43,13 +43,10 @@ class FighterState:
         # Right Leg
         self.right_leg_state = 'IDLE' 
         self.right_kick_count = 0
-        self.right_knee_count = 0
         self.prev_right_ankle = None
         self.prev_right_knee = None
 
 # Functions for detection
-# --- New, Modular Detection Functions ---
-
 # --- New, Modular Detection Functions ---
 
 def detect_punch(state: FighterState,
@@ -97,43 +94,6 @@ def detect_punch(state: FighterState,
         state.prev_shoulder_wrist_dist = calculate_distance(shoulder_xy, wrist_xy)
 
     return did_punch, debug
-
-
-def detect_knee(state: FighterState,
-                right_hip, right_knee,
-                dt,
-                knee_up_v=0.80, max_bent_angle=100):
-    """
-    Detects a right knee strike (up-the-middle) using knee vertical velocity,
-    knee height vs hip, and leg bend angle.
-    Returns: (did_knee: bool, debug: dict)
-    """
-    debug = {}
-    did_knee = False
-
-    hip_xy = [right_hip.x, right_hip.y]
-    knee_xy = [right_knee.x, right_knee.y]
-
-    if state.prev_right_knee is not None:
-        # positive when moving up in image coords where y decreases upwards
-        knee_vertical_v = (state.prev_right_knee[1] - knee_xy[1]) / dt
-        is_knee_raised = knee_xy[1] < hip_xy[1]  # knee above hip line
-
-        debug.update({"knee_vy_up": knee_vertical_v, "knee_above_hip": is_knee_raised, "leg_state": state.right_leg_state})
-
-        # start knee
-        if state.right_leg_state == 'IDLE' and knee_vertical_v > knee_up_v and is_knee_raised:
-            state.right_leg_state = 'KNEEING'
-
-        # finish knee when it starts going down
-        elif state.right_leg_state == 'KNEEING' and knee_vertical_v < 0:
-            state.right_knee_count += 1
-            did_knee = True
-            state.right_leg_state = 'IDLE'
-
-    # book-keeping
-    state.prev_right_knee = knee_xy
-    return did_knee, debug
 
 
 def detect_kick(state: FighterState,
@@ -243,14 +203,9 @@ while cap.isOpened():
         # 1) Punch
         _punch, punch_dbg = detect_punch(state, RW, RS, dt)
 
-        # 2) Knee (prioritize knee over kick to avoid double counting)
-        _knee, knee_dbg = detect_knee(state, RH, RK, dt)
+        # 2) Kick
+        _kick, kick_dbg = detect_kick(state, RH, RK, RA, dt)
 
-        # 3) Kick (only if not currently kneeing)
-        if state.right_leg_state != 'KNEEING':
-            _kick, kick_dbg = detect_kick(state, RH, RK, RA, dt)
-        else:
-            _kick, kick_dbg = (False, {"skipped": "currently kneeing"})
 
     # --- Apply logic to both players ---
     if results_p1.pose_landmarks:
@@ -274,13 +229,12 @@ while cap.isOpened():
     image[:, width//2:] = image_p2
     cv2.line(image, (width//2, 0), (width//2, height), (255, 255, 255), 2)
     
-    cv2.rectangle(image, (0, 0), (width, 140), (20, 20, 20), -1)
+    cv2.rectangle(image, (0, 0), (width, 110), (20, 20, 20), -1)
 
     # Player 1 Info
     cv2.putText(image, 'FIGHTER 1 (BLUE)', (15, 25), cv2.FONT_HERSHEY_SIMPLEX, 0.7, (255, 150, 150), 2)
     cv2.putText(image, f'PUNCHES: {p1_state.right_punch_count}', (15, 60), cv2.FONT_HERSHEY_SIMPLEX, 0.9, (255, 255, 255), 2)
     cv2.putText(image, f'KICKS: {p1_state.right_kick_count}', (15, 95), cv2.FONT_HERSHEY_SIMPLEX, 0.9, (255, 255, 255), 2)
-    cv2.putText(image, f'KNEES: {p1_state.right_knee_count}', (15, 130), cv2.FONT_HERSHEY_SIMPLEX, 0.9, (255, 255, 255), 2)
     cv2.putText(image, f'ARM: {p1_state.right_hand_state}', (250, 60), cv2.FONT_HERSHEY_SIMPLEX, 0.9, (255, 255, 255), 2)
     cv2.putText(image, f'LEG: {p1_state.right_leg_state}', (250, 95), cv2.FONT_HERSHEY_SIMPLEX, 0.9, (255, 255, 255), 2)
 
@@ -289,7 +243,6 @@ while cap.isOpened():
     cv2.putText(image, 'FIGHTER 2 (RED)', (p2_start_x, 25), cv2.FONT_HERSHEY_SIMPLEX, 0.7, (150, 150, 255), 2)
     cv2.putText(image, f'PUNCHES: {p2_state.right_punch_count}', (p2_start_x, 60), cv2.FONT_HERSHEY_SIMPLEX, 0.9, (255, 255, 255), 2)
     cv2.putText(image, f'KICKS: {p2_state.right_kick_count}', (p2_start_x, 95), cv2.FONT_HERSHEY_SIMPLEX, 0.9, (255, 255, 255), 2)
-    cv2.putText(image, f'KNEES: {p2_state.right_knee_count}', (p2_start_x, 130), cv2.FONT_HERSHEY_SIMPLEX, 0.9, (255, 255, 255), 2)
     cv2.putText(image, f'ARM: {p2_state.right_hand_state}', (p2_start_x + 200, 60), cv2.FONT_HERSHEY_SIMPLEX, 0.9, (255, 255, 255), 2)
     cv2.putText(image, f'LEG: {p2_state.right_leg_state}', (p2_start_x + 200, 95), cv2.FONT_HERSHEY_SIMPLEX, 0.9, (255, 255, 255), 2)
     
