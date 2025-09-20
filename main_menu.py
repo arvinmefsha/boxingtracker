@@ -7,7 +7,7 @@ from game import Game
 
 class MainMenu(Game):
     def __init__(self):
-        self.options = ["Start Boxing Game", "Start Fruit Ninja Game", "Instructions", "Exit"]
+        self.options = ["Start Boxing Game", "Start Fruit Ninja Game", "Start Reaction Time Game", "Instructions", "Exit"]
         self.selected_option = 0
         self.instructions_mode = False
 
@@ -36,7 +36,7 @@ class MainMenu(Game):
         cv2.rectangle(frame, (0, 0), (1920, 1080), (20, 20, 20), -1)
 
         if self.instructions_mode:
-            # Display instructions (updated for both games)
+            # Display instructions (updated for all games)
             instructions = [
                 "Game Instructions:",
                 "Boxing Game:",
@@ -46,6 +46,10 @@ class MainMenu(Game):
                 " - Slice fruits with hand swipes (fast movements).",
                 " - Avoid bombs or lose points.",
                 " - Hands act as swords.",
+                "Reaction Time Game:",
+                " - Press space to start, wait for green bar.",
+                " - Raise hands over shoulders fastest to win.",
+                " - Reset with spacebar.",
                 "Press 'q' or Enter to return to menu."
             ]
             for i, line in enumerate(instructions):
