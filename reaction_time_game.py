@@ -4,6 +4,7 @@ import cv2
 import mediapipe as mp
 import time
 import random
+import numpy as np
 
 from game import Game
 
@@ -256,6 +257,9 @@ class ReactionTimeGame(Game):
             match_over = self.p1_wins >= self.target_wins or self.p2_wins >= self.target_wins
             
             if match_over:
+                # Black background for final text
+                cv2.rectangle(frame, (500, 200), (1420, 400), (0, 0, 0), -1)
+                
                 if self.p1_wins >= self.target_wins:
                     final_text = "Player 1 Wins the Match!"
                 elif self.p2_wins >= self.target_wins:
@@ -264,6 +268,9 @@ class ReactionTimeGame(Game):
                 cv2.putText(frame, f"Final Score: P1 {self.p1_wins} - P2 {self.p2_wins}", (650, 350), cv2.FONT_HERSHEY_SIMPLEX, 1, (255, 255, 255), 2, cv2.LINE_AA)
                 cv2.putText(frame, "Press Space for New Match", (700, 500), cv2.FONT_HERSHEY_SIMPLEX, 1, (200, 200, 200), 2, cv2.LINE_AA)
             else:
+                # Black background for round text and score
+                cv2.rectangle(frame, (500, 200), (1420, 450), (0, 0, 0), -1)
+                
                 if round_winner == 1:
                     round_text = "Player 1 Wins Round!"
                 elif round_winner == 2:
