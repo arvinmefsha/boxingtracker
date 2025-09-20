@@ -48,11 +48,11 @@ class BoxingGame(Game):
         if not hasattr(state, kick_count_attr):
             setattr(state, kick_count_attr, 0)
 
-    def _ensure_duck_fields(self, state):
-        if not hasattr(state, 'duck_state'):
-            state.duck_state = 'IDLE'
-        if not hasattr(state, 'duck_count'):
-            state.duck_count = 0
+    def _ensure_weave_fields(self, state):
+        if not hasattr(state, 'weave_state'):
+            state.weave_state = 'IDLE'
+        if not hasattr(state, 'weave_count'):
+            state.weave_count = 0
 
     # --------- PUNCH (both arms) ---------
     def detect_punch(
@@ -175,19 +175,19 @@ class BoxingGame(Game):
 
         return did_kick, debug
 
-    # --------- DUCK (either side) ---------
-    def detect_duck(self, state, LH, LS, RH, RS, angle_from_vertical_thresh: float = 45.0, hysteresis: float = 3.0):
+    # --------- WEAVE (either side) ---------
+    def detect_weave(self, state, LH, LS, RH, RS, angle_from_vertical_thresh: float = 45.0, hysteresis: float = 3.0):
         """
-        Duck when torso line (hip->shoulder) tilts more than 'angle_from_vertical_thresh'
-        degrees away from vertical on EITHER side. (Prevents duck firing on straight kicks.)
+        Weave when torso line (hip->shoulder) tilts more than 'angle_from_vertical_thresh'
+        degrees away from vertical on EITHER side. (Prevents weave firing on straight kicks.)
 
         left_tilt  = angle between (LS - LH) and vertical axis
         right_tilt = angle between (RS - RH) and vertical axis
-        DUCK if max(left_tilt, right_tilt) > threshold, with small hysteresis.
+        WEAVE if max(left_tilt, right_tilt) > threshold, with small hysteresis.
         """
         debug = {}
-        did_duck = False
-        self._ensure_duck_fields(state)
+        did_weave = False
+        self._ensure_weave_fields(state)
 
         def tilt_from_vertical(hip, shoulder):
             dx = shoulder.x - hip.x
@@ -203,21 +203,21 @@ class BoxingGame(Game):
             "left_tilt_from_vertical_deg": left_tilt,
             "right_tilt_from_vertical_deg": right_tilt,
             "max_tilt_deg": max_tilt,
-            "duck_state": state.duck_state
+            "weave_state": state.weave_state
         })
 
         tilting_now = (max_tilt > angle_from_vertical_thresh)
 
-        if state.duck_state == 'IDLE':
+        if state.weave_state == 'IDLE':
             if tilting_now:
-                state.duck_count = getattr(state, 'duck_count', 0) + 1
-                state.duck_state = 'DUCKING'
-                did_duck = True
-        else:  # DUCKING
+                state.weave_count = getattr(state, 'weave_count', 0) + 1
+                state.weave_state = 'WEAVING'
+                did_weave = True
+        else:  # WEAVING
             if max_tilt < (angle_from_vertical_thresh - hysteresis):
-                state.duck_state = 'IDLE'
+                state.weave_state = 'IDLE'
 
-        return did_duck, debug
+        return did_weave, debug
 
     # --------- per-frame processing ---------
     def process_fighter(self, landmarks, state, dt):
@@ -251,8 +251,8 @@ class BoxingGame(Game):
         self.detect_kick(state, RH, RA, 'right')
         self.detect_kick(state, LH, LA, 'left')
 
-        # Duck by torso tilt from vertical (either side)
-        self.detect_duck(state, LH, LS, RH, RS)
+        # Weave by torso tilt from vertical (either side)
+        self.detect_weave(state, LH, LS, RH, RS)
 
     # --------- engine integration ---------
     def handle_input(self, pose_data):
@@ -335,15 +335,15 @@ class BoxingGame(Game):
         # Totals for P1
         p1_total_punches = getattr(self.p1_state, 'right_punch_count', 0) + getattr(self.p1_state, 'left_punch_count', 0)
         p1_total_kicks = getattr(self.p1_state, 'right_kick_count', 0) + getattr(self.p1_state, 'left_kick_count', 0)
-        p1_ducks = getattr(self.p1_state, 'duck_count', 0)
+        p1_weaves = getattr(self.p1_state, 'weave_count', 0)
 
         p1_punch_text = f'PUNCHES: {p1_total_punches}'
         p1_kick_text  = f'KICKS: {p1_total_kicks}'
-        p1_duck_text  = f'DUCKS: {p1_ducks}'
+        p1_weave_text  = f'WEAVES: {p1_weaves}'
 
         cv2.putText(frame, p1_punch_text, (margin, y_line1), font, value_font_scale, (255, 255, 255), thick)
         cv2.putText(frame, p1_kick_text,  (margin, y_line2), font, value_font_scale, (255, 255, 255), thick)
-        cv2.putText(frame, p1_duck_text,  (margin, y_line3), font, value_font_scale, (255, 255, 255), thick)
+        cv2.putText(frame, p1_weave_text,  (margin, y_line3), font, value_font_scale, (255, 255, 255), thick)
 
         # States right-aligned to the center divider
         p1_arm_combined = 'PUNCHING' if (
@@ -386,18 +386,18 @@ class BoxingGame(Game):
         # Totals for P2 (right-aligned)
         p2_total_punches = getattr(self.p2_state, 'right_punch_count', 0) + getattr(self.p2_state, 'left_punch_count', 0)
         p2_total_kicks   = getattr(self.p2_state, 'right_kick_count', 0) + getattr(self.p2_state, 'left_kick_count', 0)
-        p2_ducks         = getattr(self.p2_state, 'duck_count', 0)
+        p2_weaves         = getattr(self.p2_state, 'weave_count', 0)
 
         p2_punch_text = f'PUNCHES: {p2_total_punches}'
         p2_kick_text  = f'KICKS: {p2_total_kicks}'
-        p2_duck_text  = f'DUCKS: {p2_ducks}'
+        p2_weave_text  = f'WEAVES: {p2_weaves}'
 
         p2_punch_sz = cv2.getTextSize(p2_punch_text, font, value_font_scale, thick)[0]
         p2_kick_sz  = cv2.getTextSize(p2_kick_text,  font, value_font_scale, thick)[0]
-        p2_duck_sz  = cv2.getTextSize(p2_duck_text,  font, value_font_scale, thick)[0]
+        p2_weave_sz  = cv2.getTextSize(p2_weave_text,  font, value_font_scale, thick)[0]
 
         cv2.putText(frame, p2_punch_text, (width - p2_punch_sz[0] - margin, y_line1), font, value_font_scale, (255, 255, 255), thick)
         cv2.putText(frame, p2_kick_text,  (width - p2_kick_sz[0]  - margin, y_line2), font, value_font_scale, (255, 255, 255), thick)
-        cv2.putText(frame, p2_duck_text,  (width - p2_duck_sz[0]  - margin, y_line3), font, value_font_scale, (255, 255, 255), thick)
+        cv2.putText(frame, p2_weave_text,  (width - p2_weave_sz[0]  - margin, y_line3), font, value_font_scale, (255, 255, 255), thick)
 
         return frame
