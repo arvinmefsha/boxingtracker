@@ -20,6 +20,8 @@ class ReactionTimeGame(Game):
         self.delay = 0
         self.p1_time = None
         self.p2_time = None
+        self.first_reaction_time = None  # Time when first player reacted
+        self.reaction_timeout = 1  # 1 second after first reaction
 
     def reset(self):
         """Reset game state."""
@@ -29,17 +31,21 @@ class ReactionTimeGame(Game):
         self.delay = 0
         self.p1_time = None
         self.p2_time = None
+        self.first_reaction_time = None
         self.pose_data = {'p1': None, 'p2': None}
 
     def handle_key(self, key):
         """Handle keyboard input for the game."""
         if key == 32:  # Spacebar
             if self.state == 'IDLE' or self.state == 'RESULTS':
+                self.p1_time = None
+                self.p2_time = None
+                self.first_reaction_time = None
                 self.state = 'WAITING'
                 self.delay = random.uniform(3, 5)
                 self.start_time = time.time()
             elif self.state == 'GREEN':
-                # Optional: reset if pressed during green, but per prompt, reset with space
+                # Optional: reset if pressed during green
                 self.reset()
 
     def is_raised(self, landmarks):
@@ -74,13 +80,17 @@ class ReactionTimeGame(Game):
             # Check Player 1
             if self.p1_time is None and self.is_raised(pose_data['p1'].pose_landmarks.landmark if pose_data['p1'] and pose_data['p1'].pose_landmarks else None):
                 self.p1_time = current_time - self.green_time
+                if self.first_reaction_time is None:
+                    self.first_reaction_time = current_time
             
             # Check Player 2
             if self.p2_time is None and self.is_raised(pose_data['p2'].pose_landmarks.landmark if pose_data['p2'] and pose_data['p2'].pose_landmarks else None):
                 self.p2_time = current_time - self.green_time
+                if self.first_reaction_time is None:
+                    self.first_reaction_time = current_time
             
-            # If both have reacted, go to results
-            if self.p1_time is not None and self.p2_time is not None:
+            # Check for timeout after first reaction
+            if self.first_reaction_time is not None and current_time - self.first_reaction_time > self.reaction_timeout:
                 self.state = 'RESULTS'
 
     def render(self, frame):
@@ -133,10 +143,18 @@ class ReactionTimeGame(Game):
             # Green bar
             pass
         elif self.state == 'RESULTS':
-            if self.p1_time is None or self.p2_time is None:
+            if self.p1_time is None and self.p2_time is None:
                 winner_text = "Incomplete Game"
-                p1_text = "No Reaction" if self.p1_time is None else f"Time: {self.p1_time:.2f}s"
-                p2_text = "No Reaction" if self.p2_time is None else f"Time: {self.p2_time:.2f}s"
+                p1_text = "No Reaction"
+                p2_text = "No Reaction"
+            elif self.p1_time is None:
+                winner_text = "Player 2 Wins!"
+                p1_text = "No Reaction"
+                p2_text = f"Time: {self.p2_time:.2f}s"
+            elif self.p2_time is None:
+                winner_text = "Player 1 Wins!"
+                p1_text = f"Time: {self.p1_time:.2f}s"
+                p2_text = "No Reaction"
             else:
                 if self.p1_time < self.p2_time:
                     winner_text = "Player 1 Wins!"
