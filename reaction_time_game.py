@@ -27,6 +27,7 @@ class ReactionTimeGame(Game):
         self.p1_wins = 0
         self.p2_wins = 0
         self.target_wins = 3  # First to 3 wins
+        self.round_completed = False  # Flag to prevent re-incrementing wins
 
     def reset(self):
         """Reset game state."""
@@ -39,6 +40,7 @@ class ReactionTimeGame(Game):
         self.first_reaction_time = None
         self.p1_cheated = False
         self.p2_cheated = False
+        self.round_completed = False
         self.pose_data = {'p1': None, 'p2': None}
 
     def reset_match(self):
@@ -59,6 +61,7 @@ class ReactionTimeGame(Game):
                     self.first_reaction_time = None
                     self.p1_cheated = False
                     self.p2_cheated = False
+                    self.round_completed = False
                     self.state = 'WAITING'
                     self.delay = random.uniform(3, 5)
                     self.start_time = time.time()
@@ -72,6 +75,7 @@ class ReactionTimeGame(Game):
                     self.first_reaction_time = None
                     self.p1_cheated = False
                     self.p2_cheated = False
+                    self.round_completed = False
                     self.state = 'WAITING'
                     self.delay = random.uniform(3, 5)
                     self.start_time = time.time()
@@ -81,30 +85,42 @@ class ReactionTimeGame(Game):
 
     def determine_round_winner(self):
         """Determine winner of the current round and update win counts."""
+        if self.round_completed:
+            return None  # Already processed
+        
         if self.p1_cheated and self.p2_cheated:
+            self.round_completed = True
             return None  # Tie, no win
         elif self.p1_cheated:
             self.p2_wins += 1
+            self.round_completed = True
             return 2
         elif self.p2_cheated:
             self.p1_wins += 1
+            self.round_completed = True
             return 1
         elif self.p1_time is None and self.p2_time is None:
+            self.round_completed = True
             return None  # Incomplete, no win
         elif self.p1_time is None:
             self.p2_wins += 1
+            self.round_completed = True
             return 2
         elif self.p2_time is None:
             self.p1_wins += 1
+            self.round_completed = True
             return 1
         else:
             if self.p1_time < self.p2_time:
                 self.p1_wins += 1
+                self.round_completed = True
                 return 1
             elif self.p2_time < self.p1_time:
                 self.p2_wins += 1
+                self.round_completed = True
                 return 2
             else:
+                self.round_completed = True
                 return None  # Tie, no win
 
     def is_raised(self, landmarks):
@@ -167,6 +183,10 @@ class ReactionTimeGame(Game):
             # Or timeout after first reaction if only one has reacted
             elif self.first_reaction_time is not None and current_time - self.first_reaction_time > self.reaction_timeout:
                 self.state = 'RESULTS'
+        
+        elif self.state == 'RESULTS':
+            # Determine winner only once per round
+            self.determine_round_winner()
 
     def render(self, frame):
         """Render the reaction time game visuals."""
@@ -218,7 +238,7 @@ class ReactionTimeGame(Game):
             # Green bar
             pass
         elif self.state == 'RESULTS':
-            round_winner = self.determine_round_winner()
+            round_winner = self.determine_round_winner() if not self.round_completed else None
             match_over = self.p1_wins >= self.target_wins or self.p2_wins >= self.target_wins
             
             if match_over:
