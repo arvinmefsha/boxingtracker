@@ -2,7 +2,7 @@ import cv2
 import mediapipe as mp
 import time
 import math  # for angle-from-vertical
-
+#eiwrjwiofdajnf
 from game import Game
 from helpers import calculate_distance, calculate_velocity, calculate_angle
 from fighter_state import FighterState
