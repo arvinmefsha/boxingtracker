@@ -24,6 +24,9 @@ class ReactionTimeGame(Game):
         self.reaction_timeout = 1  # 1 second after first reaction
         self.p1_cheated = False
         self.p2_cheated = False
+        self.p1_wins = 0
+        self.p2_wins = 0
+        self.target_wins = 3  # First to 3 wins
 
     def reset(self):
         """Reset game state."""
@@ -38,21 +41,71 @@ class ReactionTimeGame(Game):
         self.p2_cheated = False
         self.pose_data = {'p1': None, 'p2': None}
 
+    def reset_match(self):
+        """Reset the entire match (wins to 0)."""
+        self.p1_wins = 0
+        self.p2_wins = 0
+        self.reset()
+
     def handle_key(self, key):
         """Handle keyboard input for the game."""
         if key == 32:  # Spacebar
-            if self.state == 'IDLE' or self.state == 'RESULTS':
-                self.p1_time = None
-                self.p2_time = None
-                self.first_reaction_time = None
-                self.p1_cheated = False
-                self.p2_cheated = False
-                self.state = 'WAITING'
-                self.delay = random.uniform(3, 5)
-                self.start_time = time.time()
+            if self.state == 'IDLE':
+                if self.p1_wins >= self.target_wins or self.p2_wins >= self.target_wins:
+                    self.reset_match()  # Start new match if previous ended
+                else:
+                    self.p1_time = None
+                    self.p2_time = None
+                    self.first_reaction_time = None
+                    self.p1_cheated = False
+                    self.p2_cheated = False
+                    self.state = 'WAITING'
+                    self.delay = random.uniform(3, 5)
+                    self.start_time = time.time()
+            elif self.state == 'RESULTS':
+                if self.p1_wins >= self.target_wins or self.p2_wins >= self.target_wins:
+                    self.reset_match()  # Start new match
+                else:
+                    # Start next round
+                    self.p1_time = None
+                    self.p2_time = None
+                    self.first_reaction_time = None
+                    self.p1_cheated = False
+                    self.p2_cheated = False
+                    self.state = 'WAITING'
+                    self.delay = random.uniform(3, 5)
+                    self.start_time = time.time()
             elif self.state == 'GREEN':
                 # Optional: reset if pressed during green
                 self.reset()
+
+    def determine_round_winner(self):
+        """Determine winner of the current round and update win counts."""
+        if self.p1_cheated and self.p2_cheated:
+            return None  # Tie, no win
+        elif self.p1_cheated:
+            self.p2_wins += 1
+            return 2
+        elif self.p2_cheated:
+            self.p1_wins += 1
+            return 1
+        elif self.p1_time is None and self.p2_time is None:
+            return None  # Incomplete, no win
+        elif self.p1_time is None:
+            self.p2_wins += 1
+            return 2
+        elif self.p2_time is None:
+            self.p1_wins += 1
+            return 1
+        else:
+            if self.p1_time < self.p2_time:
+                self.p1_wins += 1
+                return 1
+            elif self.p2_time < self.p1_time:
+                self.p2_wins += 1
+                return 2
+            else:
+                return None  # Tie, no win
 
     def is_raised(self, landmarks):
         """Check if both hands are raised above shoulders."""
@@ -165,43 +218,51 @@ class ReactionTimeGame(Game):
             # Green bar
             pass
         elif self.state == 'RESULTS':
-            if self.p1_cheated and self.p2_cheated:
-                winner_text = "Both Cheated - Tie!"
-                p1_text = "Cheated"
-                p2_text = "Cheated"
-            elif self.p1_cheated:
-                winner_text = "Player 2 Wins!"
-                p1_text = "Cheated"
-                p2_text = f"Time: {self.p2_time:.2f}s" if self.p2_time is not None else "No Reaction"
-            elif self.p2_cheated:
-                winner_text = "Player 1 Wins!"
-                p1_text = f"Time: {self.p1_time:.2f}s" if self.p1_time is not None else "No Reaction"
-                p2_text = "Cheated"
-            elif self.p1_time is None and self.p2_time is None:
-                winner_text = "Incomplete Game"
-                p1_text = "No Reaction"
-                p2_text = "No Reaction"
-            elif self.p1_time is None:
-                winner_text = "Player 2 Wins!"
-                p1_text = "No Reaction"
-                p2_text = f"Time: {self.p2_time:.2f}s"
-            elif self.p2_time is None:
-                winner_text = "Player 1 Wins!"
-                p1_text = f"Time: {self.p1_time:.2f}s"
-                p2_text = "No Reaction"
-            else:
-                if self.p1_time < self.p2_time:
-                    winner_text = "Player 1 Wins!"
-                elif self.p2_time < self.p1_time:
-                    winner_text = "Player 2 Wins!"
-                else:
-                    winner_text = "Tie!"
-                p1_text = f"Time: {self.p1_time:.2f}s"
-                p2_text = f"Time: {self.p2_time:.2f}s"
+            round_winner = self.determine_round_winner()
+            match_over = self.p1_wins >= self.target_wins or self.p2_wins >= self.target_wins
             
-            cv2.putText(frame, winner_text, (700, 400), cv2.FONT_HERSHEY_SIMPLEX, 1.5, (255, 255, 255), 3, cv2.LINE_AA)
-            cv2.putText(frame, p1_text, (300, 500), cv2.FONT_HERSHEY_SIMPLEX, 1, (255, 0, 0), 2, cv2.LINE_AA)
-            cv2.putText(frame, p2_text, (1300, 500), cv2.FONT_HERSHEY_SIMPLEX, 1, (0, 0, 255), 2, cv2.LINE_AA)
-            cv2.putText(frame, "Press Space to Reset", (700, 600), cv2.FONT_HERSHEY_SIMPLEX, 1, (200, 200, 200), 2, cv2.LINE_AA)
+            if match_over:
+                if self.p1_wins >= self.target_wins:
+                    final_text = "Player 1 Wins the Match!"
+                elif self.p2_wins >= self.target_wins:
+                    final_text = "Player 2 Wins the Match!"
+                cv2.putText(frame, final_text, (600, 300), cv2.FONT_HERSHEY_SIMPLEX, 1.5, (255, 255, 255), 3, cv2.LINE_AA)
+                cv2.putText(frame, f"Final Score: P1 {self.p1_wins} - P2 {self.p2_wins}", (650, 350), cv2.FONT_HERSHEY_SIMPLEX, 1, (255, 255, 255), 2, cv2.LINE_AA)
+                cv2.putText(frame, "Press Space for New Match", (700, 500), cv2.FONT_HERSHEY_SIMPLEX, 1, (200, 200, 200), 2, cv2.LINE_AA)
+            else:
+                if round_winner == 1:
+                    round_text = "Player 1 Wins Round!"
+                elif round_winner == 2:
+                    round_text = "Player 2 Wins Round!"
+                else:
+                    round_text = "Tie Round!"
+                cv2.putText(frame, round_text, (700, 300), cv2.FONT_HERSHEY_SIMPLEX, 1.2, (255, 255, 255), 2, cv2.LINE_AA)
+                cv2.putText(frame, f"Score: P1 {self.p1_wins} - P2 {self.p2_wins}", (700, 350), cv2.FONT_HERSHEY_SIMPLEX, 1, (255, 255, 255), 2, cv2.LINE_AA)
+                
+                if self.p1_cheated and self.p2_cheated:
+                    p1_text = "Cheated"
+                    p2_text = "Cheated"
+                elif self.p1_cheated:
+                    p1_text = "Cheated"
+                    p2_text = f"Time: {self.p2_time:.2f}s" if self.p2_time is not None else "No Reaction"
+                elif self.p2_cheated:
+                    p1_text = f"Time: {self.p1_time:.2f}s" if self.p1_time is not None else "No Reaction"
+                    p2_text = "Cheated"
+                elif self.p1_time is None and self.p2_time is None:
+                    p1_text = "No Reaction"
+                    p2_text = "No Reaction"
+                elif self.p1_time is None:
+                    p1_text = "No Reaction"
+                    p2_text = f"Time: {self.p2_time:.2f}s"
+                elif self.p2_time is None:
+                    p1_text = f"Time: {self.p1_time:.2f}s"
+                    p2_text = "No Reaction"
+                else:
+                    p1_text = f"Time: {self.p1_time:.2f}s"
+                    p2_text = f"Time: {self.p2_time:.2f}s"
+                
+                cv2.putText(frame, p1_text, (300, 500), cv2.FONT_HERSHEY_SIMPLEX, 1, (255, 0, 0), 2, cv2.LINE_AA)
+                cv2.putText(frame, p2_text, (1300, 500), cv2.FONT_HERSHEY_SIMPLEX, 1, (0, 0, 255), 2, cv2.LINE_AA)
+                cv2.putText(frame, "Press Space for Next Round", (700, 600), cv2.FONT_HERSHEY_SIMPLEX, 1, (200, 200, 200), 2, cv2.LINE_AA)
 
         return frame
