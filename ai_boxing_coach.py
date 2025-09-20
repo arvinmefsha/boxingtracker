@@ -224,28 +224,48 @@ while cap.isOpened():
 
     prev_time = current_time
 
-    # --- Display Dashboard ---
+    # --- Display Dashboard (FIXED LAYOUT) ---
     image[:, :width//2] = image_p1
     image[:, width//2:] = image_p2
     cv2.line(image, (width//2, 0), (width//2, height), (255, 255, 255), 2)
     
     cv2.rectangle(image, (0, 0), (width, 110), (20, 20, 20), -1)
-
-    # Player 1 Info
-    cv2.putText(image, 'FIGHTER 1 (BLUE)', (15, 25), cv2.FONT_HERSHEY_SIMPLEX, 0.7, (255, 150, 150), 2)
-    cv2.putText(image, f'PUNCHES: {p1_state.right_punch_count}', (15, 60), cv2.FONT_HERSHEY_SIMPLEX, 0.9, (255, 255, 255), 2)
-    cv2.putText(image, f'KICKS: {p1_state.right_kick_count}', (15, 95), cv2.FONT_HERSHEY_SIMPLEX, 0.9, (255, 255, 255), 2)
-    cv2.putText(image, f'ARM: {p1_state.right_hand_state}', (250, 60), cv2.FONT_HERSHEY_SIMPLEX, 0.9, (255, 255, 255), 2)
-    cv2.putText(image, f'LEG: {p1_state.right_leg_state}', (250, 95), cv2.FONT_HERSHEY_SIMPLEX, 0.9, (255, 255, 255), 2)
-
-    # Player 2 Info
-    p2_start_x = width - 300
-    cv2.putText(image, 'FIGHTER 2 (RED)', (p2_start_x, 25), cv2.FONT_HERSHEY_SIMPLEX, 0.7, (150, 150, 255), 2)
-    cv2.putText(image, f'PUNCHES: {p2_state.right_punch_count}', (p2_start_x, 60), cv2.FONT_HERSHEY_SIMPLEX, 0.9, (255, 255, 255), 2)
-    cv2.putText(image, f'KICKS: {p2_state.right_kick_count}', (p2_start_x, 95), cv2.FONT_HERSHEY_SIMPLEX, 0.9, (255, 255, 255), 2)
-    cv2.putText(image, f'ARM: {p2_state.right_hand_state}', (p2_start_x + 200, 60), cv2.FONT_HERSHEY_SIMPLEX, 0.9, (255, 255, 255), 2)
-    cv2.putText(image, f'LEG: {p2_state.right_leg_state}', (p2_start_x + 200, 95), cv2.FONT_HERSHEY_SIMPLEX, 0.9, (255, 255, 255), 2)
     
+    margin = 15
+
+    # --- Player 1 Info (Left Panel) ---
+    # Title and Counters are left-aligned to the screen edge
+    cv2.putText(image, 'FIGHTER 1 (BLUE)', (margin, 25), cv2.FONT_HERSHEY_SIMPLEX, 0.7, (255, 150, 150), 2)
+    cv2.putText(image, f'PUNCHES: {p1_state.right_punch_count}', (margin, 60), cv2.FONT_HERSHEY_SIMPLEX, 0.9, (255, 255, 255), 2)
+    cv2.putText(image, f'KICKS: {p1_state.right_kick_count}', (margin, 95), cv2.FONT_HERSHEY_SIMPLEX, 0.9, (255, 255, 255), 2)
+
+    # States are right-aligned to the center divider
+    p1_arm_text = f'ARM: {p1_state.right_hand_state}'
+    p1_leg_text = f'LEG: {p1_state.right_leg_state}'
+    p1_arm_text_size = cv2.getTextSize(p1_arm_text, cv2.FONT_HERSHEY_SIMPLEX, 0.9, 2)[0]
+    p1_leg_text_size = cv2.getTextSize(p1_leg_text, cv2.FONT_HERSHEY_SIMPLEX, 0.9, 2)[0]
+    
+    cv2.putText(image, p1_arm_text, (width//2 - p1_arm_text_size[0] - margin, 60), cv2.FONT_HERSHEY_SIMPLEX, 0.9, (255, 255, 255), 2)
+    cv2.putText(image, p1_leg_text, (width//2 - p1_leg_text_size[0] - margin, 95), cv2.FONT_HERSHEY_SIMPLEX, 0.9, (255, 255, 255), 2)
+
+    # --- Player 2 Info (Right Panel) ---
+    # States are left-aligned to the center divider
+    cv2.putText(image, f'ARM: {p2_state.right_hand_state}', (width//2 + margin, 60), cv2.FONT_HERSHEY_SIMPLEX, 0.9, (255, 255, 255), 2)
+    cv2.putText(image, f'LEG: {p2_state.right_leg_state}', (width//2 + margin, 95), cv2.FONT_HERSHEY_SIMPLEX, 0.9, (255, 255, 255), 2)
+    
+    # Title and Counters are right-aligned to the screen edge
+    p2_title = 'FIGHTER 2 (RED)'
+    p2_title_size = cv2.getTextSize(p2_title, cv2.FONT_HERSHEY_SIMPLEX, 0.7, 2)[0]
+    cv2.putText(image, p2_title, (width - p2_title_size[0] - margin, 25), cv2.FONT_HERSHEY_SIMPLEX, 0.7, (150, 150, 255), 2)
+
+    p2_punch_text = f'PUNCHES: {p2_state.right_punch_count}'
+    p2_kick_text = f'KICKS: {p2_state.right_kick_count}'
+    p2_punch_text_size = cv2.getTextSize(p2_punch_text, cv2.FONT_HERSHEY_SIMPLEX, 0.9, 2)[0]
+    p2_kick_text_size = cv2.getTextSize(p2_kick_text, cv2.FONT_HERSHEY_SIMPLEX, 0.9, 2)[0]
+    
+    cv2.putText(image, p2_punch_text, (width - p2_punch_text_size[0] - margin, 60), cv2.FONT_HERSHEY_SIMPLEX, 0.9, (255, 255, 255), 2)
+    cv2.putText(image, p2_kick_text, (width - p2_kick_text_size[0] - margin, 95), cv2.FONT_HERSHEY_SIMPLEX, 0.9, (255, 255, 255), 2)
+
     cv2.imshow('AI Boxing Coach - Sparring Mode', image)
 
     if cv2.waitKey(5) & 0xFF == ord('q'):
