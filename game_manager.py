@@ -1,6 +1,7 @@
 # game_manager.py
 
 import cv2
+import numpy as np
 
 from main_menu import MainMenu
 from boxing_game import BoxingGame

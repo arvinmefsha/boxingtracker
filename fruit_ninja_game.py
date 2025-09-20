@@ -13,15 +13,17 @@ class FruitNinjaGame(Game):
         self.mp_pose = mp.solutions.pose
         self.mp_drawing = mp.solutions.drawing_utils
         self.pose = self.mp_pose.Pose(min_detection_confidence=0.5, min_tracking_confidence=0.5)
-        self.pose_data = {'p1': None, 'p2': None}  # Store pose data
+        self.pose_data = {'p1': None, 'p2': None}
         
         # Game parameters
-        self.gravity = 0.5  # Pixels per frame squared
-        self.spawn_interval = 0.5  # Seconds between spawns
-        self.slice_velocity_threshold = 1.0  # Normalized velocity for swipe
-        self.fruit_radius = 30
-        self.bomb_radius = 30
-        self.fruit_colors = [(0, 255, 0), (0, 0, 255), (255, 0, 0)]  # Green, Blue, Red
+        ## GAMEPLAY: Slower gravity for a floatier feel.
+        self.gravity = .8
+        self.spawn_interval = 0.5
+        ## GAMEPLAY: Increased velocity threshold to require a faster swipe.
+        self.slice_velocity_threshold = 800.0 # Pixels per second
+        self.fruit_radius = 50
+        self.bomb_radius = 50
+        self.fruit_colors = [(0, 255, 0), (0, 0, 255), (255, 0, 0)]
         
         # Player 1 (Left side)
         self.p1_score = 0
@@ -31,6 +33,9 @@ class FruitNinjaGame(Game):
         self.p1_prev_left_wrist_screen = None
         self.p1_prev_right_wrist_screen = None
         self.p1_last_spawn = time.time()
+        ## NEW FEATURE: Lists for visual effects
+        self.p1_sliced_pieces = []
+        self.p1_explosions = []
         
         # Player 2 (Right side)
         self.p2_score = 0
@@ -40,250 +45,203 @@ class FruitNinjaGame(Game):
         self.p2_prev_left_wrist_screen = None
         self.p2_prev_right_wrist_screen = None
         self.p2_last_spawn = time.time()
+        ## NEW FEATURE: Lists for visual effects
+        self.p2_sliced_pieces = []
+        self.p2_explosions = []
         
         self.prev_time = time.time()
 
     def reset(self):
         """Reset game state for a new session."""
-        self.p1_score = 0
-        self.p1_fruits = []
-        self.p1_bombs = []
-        self.p1_feedback = ""
-        self.p1_prev_left_wrist_screen = None
-        self.p1_prev_right_wrist_screen = None
-        self.p1_last_spawn = time.time()
-        
-        self.p2_score = 0
-        self.p2_fruits = []
-        self.p2_bombs = []
-        self.p2_feedback = ""
-        self.p2_prev_left_wrist_screen = None
-        self.p2_prev_right_wrist_screen = None
-        self.p2_last_spawn = time.time()
-        
-        self.prev_time = time.time()
-        self.pose_data = {'p1': None, 'p2': None}
+        self.__init__() # Re-initialize all variables
 
     def spawn_object(self, is_fruit=True):
         """Spawn a fruit or bomb."""
-        vx = random.uniform(-5, 5)
-        vy = random.uniform(-25, -15)  # Initial upward velocity
+        ## GAMEPLAY: Slower initial velocity for easier slicing.
+        vx = random.uniform(-0.1, 0.1)
+        vy = random.uniform(-1, -.5)
         color = random.choice(self.fruit_colors) if is_fruit else (0, 0, 0)
         radius = self.fruit_radius if is_fruit else self.bomb_radius
-        return {'x': random.uniform(0.2, 0.8), 'y': 1.0, 'vx': vx, 'vy': vy, 'color': color, 'radius': radius}  # Normalized positions
+        return {'x': random.uniform(0.2, 0.8), 'y': 1.0, 'vx': vx, 'vy': vy, 'color': color, 'radius': radius}
 
-    def update_objects(self, objects, dt, half_width, height):
-        """Update positions of fruits or bombs."""
+    def update_objects(self, objects, dt):
+        """Update positions of fruits, bombs, and sliced fruit pieces."""
         new_objects = []
         for obj in objects:
             obj['x'] += obj['vx'] * dt
-            obj['vy'] += self.gravity * dt
             obj['y'] += obj['vy'] * dt
-            if obj['y'] < 1.5:  # Remove if off screen (normalized y >1 is bottom)
+            obj['vy'] += self.gravity * dt
+            
+            ## NEW FEATURE: Handle lifetime for fruit pieces
+            if 'life' in obj:
+                obj['life'] -= 1
+                if obj['life'] <= 0:
+                    continue  # This piece has expired
+
+            if obj['y'] < 1.2:
                 new_objects.append(obj)
         return new_objects
+    
+    ## NEW FEATURE: Update method for explosion effects
+    def update_effects(self):
+        """Update active explosion animations."""
+        for explosions in [self.p1_explosions, self.p2_explosions]:
+            next_explosions = []
+            for exp in explosions:
+                exp['radius'] += 4 # Expansion speed
+                exp['life'] -= 1
+                if exp['life'] > 0:
+                    next_explosions.append(exp)
+            if explosions is self.p1_explosions:
+                self.p1_explosions = next_explosions
+            else:
+                self.p2_explosions = next_explosions
 
-    def check_slice(self, prev_pos, curr_pos, objects):
+    def check_slice(self, prev_pos, curr_pos, objects, half_width, height):
         """Check if swipe slices any object."""
         sliced = []
         if prev_pos is None or curr_pos is None:
             return sliced
-        # Convert to pixels
         start = (prev_pos[0], prev_pos[1])
         end = (curr_pos[0], curr_pos[1])
         for i, obj in enumerate(objects):
-            center = (obj['x'], obj['y'])
+            center = (obj['x'] * half_width, obj['y'] * height)
             if line_circle_intersection(start, end, center, obj['radius']):
                 sliced.append(i)
         return sliced
 
     def handle_input(self, pose_data, half_width, height):
         """Process pose data and detect swipes for both players."""
-        self.pose_data = pose_data  # Store for rendering
+        self.pose_data = pose_data
         current_time = time.time()
         dt = current_time - self.prev_time
+        if dt == 0: return
         self.prev_time = current_time
 
-        # Spawn for Player 1
+        # Spawning logic (unchanged)
         if current_time - self.p1_last_spawn > self.spawn_interval:
-            if random.random() < 0.8:  # 80% chance fruit
-                self.p1_fruits.append(self.spawn_object(is_fruit=True))
-            else:
-                self.p1_bombs.append(self.spawn_object(is_fruit=False))
+            self.p1_fruits.append(self.spawn_object(is_fruit=random.random() < 0.8))
             self.p1_last_spawn = current_time
-
-        # Spawn for Player 2
         if current_time - self.p2_last_spawn > self.spawn_interval:
-            if random.random() < 0.8:
-                self.p2_fruits.append(self.spawn_object(is_fruit=True))
-            else:
-                self.p2_bombs.append(self.spawn_object(is_fruit=False))
+            self.p2_fruits.append(self.spawn_object(is_fruit=random.random() < 0.8))
             self.p2_last_spawn = current_time
-
-        # Update objects (normalized to pixels for intersection)
-        self.p1_fruits = self.update_objects(self.p1_fruits, dt, half_width, height)
-        self.p1_bombs = self.update_objects(self.p1_bombs, dt, half_width, height)
-        self.p2_fruits = self.update_objects(self.p2_fruits, dt, half_width, height)
-        self.p2_bombs = self.update_objects(self.p2_bombs, dt, half_width, height)
-
-        # Process Player 1
+        
+        # Update all game objects and effects
+        self.p1_fruits = self.update_objects(self.p1_fruits, dt)
+        self.p1_bombs = self.update_objects(self.p1_bombs, dt)
+        self.p1_sliced_pieces = self.update_objects(self.p1_sliced_pieces, dt)
+        self.update_effects()
+        
+        self.p2_fruits = self.update_objects(self.p2_fruits, dt)
+        self.p2_bombs = self.update_objects(self.p2_bombs, dt)
+        self.p2_sliced_pieces = self.update_objects(self.p2_sliced_pieces, dt)
+        
+        # --- Process Player 1 Slicing ---
         if pose_data['p1'] and pose_data['p1'].pose_landmarks:
             landmarks = pose_data['p1'].pose_landmarks.landmark
-            LEFT_WRIST = self.mp_pose.PoseLandmark.LEFT_WRIST.value
-            RIGHT_WRIST = self.mp_pose.PoseLandmark.RIGHT_WRIST.value
+            wrists = {
+                'left': [landmarks[15].x * half_width, landmarks[15].y * height],
+                'right': [landmarks[16].x * half_width, landmarks[16].y * height]
+            }
+            prev_wrists = {'left': self.p1_prev_left_wrist_screen, 'right': self.p1_prev_right_wrist_screen}
 
-            p1_left_wrist = [landmarks[LEFT_WRIST].x * half_width, landmarks[LEFT_WRIST].y * height]
-            p1_right_wrist = [landmarks[RIGHT_WRIST].x * half_width, landmarks[RIGHT_WRIST].y * height]
+            for hand in ['left', 'right']:
+                if prev_wrists[hand]:
+                    velocity = calculate_velocity(wrists[hand], prev_wrists[hand], dt)
+                    if velocity > self.slice_velocity_threshold:
+                        # Check fruit slices
+                        sliced_fruits = self.check_slice(prev_wrists[hand], wrists[hand], self.p1_fruits, half_width, height)
+                        for i in sorted(sliced_fruits, reverse=True):
+                            fruit = self.p1_fruits.pop(i)
+                            self.p1_score += 1
+                            self.p1_feedback = "Sliced!"
+                            ## NEW FEATURE: Create two half-fruit pieces
+                            for _ in range(2):
+                                piece = {'x': fruit['x'], 'y': fruit['y'], 'vx': random.uniform(-1, 1), 'vy': fruit['vy'] - 0.5,
+                                         'color': fruit['color'], 'radius': self.fruit_radius // 2, 'life': 20}
+                                self.p1_sliced_pieces.append(piece)
 
-            # Left hand
-            if self.p1_prev_left_wrist_screen:
-                v_left = calculate_velocity(p1_left_wrist, self.p1_prev_left_wrist_screen, dt)
-                if v_left > self.slice_velocity_threshold:
-                    # Check fruits
-                    sliced_fruits = self.check_slice(self.p1_prev_left_wrist_screen, p1_left_wrist, 
-                                                     [{'x': f['x'] * half_width, 'y': f['y'] * height, 'radius': f['radius']} for f in self.p1_fruits])
-                    for i in sorted(sliced_fruits, reverse=True):
-                        del self.p1_fruits[i]
-                        self.p1_score += 1
-                        self.p1_feedback = "Sliced!"
-                    # Check bombs
-                    sliced_bombs = self.check_slice(self.p1_prev_left_wrist_screen, p1_left_wrist, 
-                                                    [{'x': b['x'] * half_width, 'y': b['y'] * height, 'radius': b['radius']} for b in self.p1_bombs])
-                    for i in sorted(sliced_bombs, reverse=True):
-                        del self.p1_bombs[i]
-                        self.p1_score -= 5
-                        self.p1_feedback = "Boom!"
+                        # Check bomb slices
+                        sliced_bombs = self.check_slice(prev_wrists[hand], wrists[hand], self.p1_bombs, half_width, height)
+                        for i in sorted(sliced_bombs, reverse=True):
+                            bomb = self.p1_bombs.pop(i)
+                            self.p1_score -= 5
+                            self.p1_feedback = "Boom!"
+                            ## NEW FEATURE: Create an explosion effect
+                            self.p1_explosions.append({'x': bomb['x'], 'y': bomb['y'], 'radius': 10, 'life': 15})
 
-            # Right hand
-            if self.p1_prev_right_wrist_screen:
-                v_right = calculate_velocity(p1_right_wrist, self.p1_prev_right_wrist_screen, dt)
-                if v_right > self.slice_velocity_threshold:
-                    sliced_fruits = self.check_slice(self.p1_prev_right_wrist_screen, p1_right_wrist, 
-                                                     [{'x': f['x'] * half_width, 'y': f['y'] * height, 'radius': f['radius']} for f in self.p1_fruits])
-                    for i in sorted(sliced_fruits, reverse=True):
-                        del self.p1_fruits[i]
-                        self.p1_score += 1
-                        self.p1_feedback = "Sliced!"
-                    sliced_bombs = self.check_slice(self.p1_prev_right_wrist_screen, p1_right_wrist, 
-                                                    [{'x': b['x'] * half_width, 'y': b['y'] * height, 'radius': b['radius']} for b in self.p1_bombs])
-                    for i in sorted(sliced_bombs, reverse=True):
-                        del self.p1_bombs[i]
-                        self.p1_score -= 5
-                        self.p1_feedback = "Boom!"
+            self.p1_prev_left_wrist_screen = wrists['left']
+            self.p1_prev_right_wrist_screen = wrists['right']
 
-            self.p1_prev_left_wrist_screen = p1_left_wrist
-            self.p1_prev_right_wrist_screen = p1_right_wrist
-
-        # Process Player 2 (offset x by half_width in render)
+        # --- Process Player 2 Slicing (Identical logic) ---
         if pose_data['p2'] and pose_data['p2'].pose_landmarks:
             landmarks = pose_data['p2'].pose_landmarks.landmark
-            LEFT_WRIST = self.mp_pose.PoseLandmark.LEFT_WRIST.value
-            RIGHT_WRIST = self.mp_pose.PoseLandmark.RIGHT_WRIST.value
+            wrists = {
+                'left': [landmarks[15].x * half_width, landmarks[15].y * height],
+                'right': [landmarks[16].x * half_width, landmarks[16].y * height]
+            }
+            prev_wrists = {'left': self.p2_prev_left_wrist_screen, 'right': self.p2_prev_right_wrist_screen}
 
-            p2_left_wrist = [landmarks[LEFT_WRIST].x * half_width, landmarks[LEFT_WRIST].y * height]
-            p2_right_wrist = [landmarks[RIGHT_WRIST].x * half_width, landmarks[RIGHT_WRIST].y * height]
+            for hand in ['left', 'right']:
+                if prev_wrists[hand]:
+                    velocity = calculate_velocity(wrists[hand], prev_wrists[hand], dt)
+                    if velocity > self.slice_velocity_threshold:
+                        sliced_fruits = self.check_slice(prev_wrists[hand], wrists[hand], self.p2_fruits, half_width, height)
+                        for i in sorted(sliced_fruits, reverse=True):
+                            fruit = self.p2_fruits.pop(i)
+                            self.p2_score += 1
+                            self.p2_feedback = "Sliced!"
+                            for _ in range(2):
+                                self.p2_sliced_pieces.append({'x': fruit['x'], 'y': fruit['y'], 'vx': random.uniform(-1, 1), 'vy': fruit['vy'] - 0.5,
+                                         'color': fruit['color'], 'radius': self.fruit_radius // 2, 'life': 20})
+                        sliced_bombs = self.check_slice(prev_wrists[hand], wrists[hand], self.p2_bombs, half_width, height)
+                        for i in sorted(sliced_bombs, reverse=True):
+                            bomb = self.p2_bombs.pop(i)
+                            self.p2_score -= 5
+                            self.p2_feedback = "Boom!"
+                            self.p2_explosions.append({'x': bomb['x'], 'y': bomb['y'], 'radius': 10, 'life': 15})
+            
+            self.p2_prev_left_wrist_screen = wrists['left']
+            self.p2_prev_right_wrist_screen = wrists['right']
 
-            # Left hand
-            if self.p2_prev_left_wrist_screen:
-                v_left = calculate_velocity(p2_left_wrist, self.p2_prev_left_wrist_screen, dt)
-                if v_left > self.slice_velocity_threshold:
-                    sliced_fruits = self.check_slice(self.p2_prev_left_wrist_screen, p2_left_wrist, 
-                                                     [{'x': f['x'] * half_width, 'y': f['y'] * height, 'radius': f['radius']} for f in self.p2_fruits])
-                    for i in sorted(sliced_fruits, reverse=True):
-                        del self.p2_fruits[i]
-                        self.p2_score += 1
-                        self.p2_feedback = "Sliced!"
-                    sliced_bombs = self.check_slice(self.p2_prev_left_wrist_screen, p2_left_wrist, 
-                                                    [{'x': b['x'] * half_width, 'y': b['y'] * height, 'radius': b['radius']} for b in self.p2_bombs])
-                    for i in sorted(sliced_bombs, reverse=True):
-                        del self.p2_bombs[i]
-                        self.p2_score -= 5
-                        self.p2_feedback = "Boom!"
-
-            # Right hand
-            if self.p2_prev_right_wrist_screen:
-                v_right = calculate_velocity(p2_right_wrist, self.p2_prev_right_wrist_screen, dt)
-                if v_right > self.slice_velocity_threshold:
-                    sliced_fruits = self.check_slice(self.p2_prev_right_wrist_screen, p2_right_wrist, 
-                                                     [{'x': f['x'] * half_width, 'y': f['y'] * height, 'radius': f['radius']} for f in self.p2_fruits])
-                    for i in sorted(sliced_fruits, reverse=True):
-                        del self.p2_fruits[i]
-                        self.p2_score += 1
-                        self.p2_feedback = "Sliced!"
-                    sliced_bombs = self.check_slice(self.p2_prev_right_wrist_screen, p2_right_wrist, 
-                                                    [{'x': b['x'] * half_width, 'y': b['y'] * height, 'radius': b['radius']} for b in self.p2_bombs])
-                    for i in sorted(sliced_bombs, reverse=True):
-                        del self.p2_bombs[i]
-                        self.p2_score -= 5
-                        self.p2_feedback = "Boom!"
-
-            self.p2_prev_left_wrist_screen = p2_left_wrist
-            self.p2_prev_right_wrist_screen = p2_right_wrist
 
     def update(self, pose_data, dt):
-        """Update game state."""
-        height = 1080
-        half_width = 960  # 1920 / 2
+        height, half_width = 1080, 960
         self.handle_input(pose_data, half_width, height)
 
     def render(self, frame):
-        """Render the fruit ninja game visuals."""
+        dt = time.time() - self.prev_time
+        self.update(self.pose_data, dt)
+        
         height, width, _ = frame.shape
         half_width = width // 2
         image_p1 = frame[:, :half_width]
         image_p2 = frame[:, half_width:]
 
-        # Draw landmarks for Player 1
-        if self.pose_data['p1'] and self.pose_data['p1'].pose_landmarks:
-            self.mp_drawing.draw_landmarks(
-                image_p1, self.pose_data['p1'].pose_landmarks, self.mp_pose.POSE_CONNECTIONS,
-                landmark_drawing_spec=self.mp_drawing.DrawingSpec(color=(255, 0, 0), thickness=2, circle_radius=2),
-                connection_drawing_spec=self.mp_drawing.DrawingSpec(color=(200, 100, 0), thickness=2, circle_radius=2)
-            )
+        # --- Draw for Player 1 ---
+        if self.pose_data['p1']:
+            self.mp_drawing.draw_landmarks(image_p1, self.pose_data['p1'].pose_landmarks, self.mp_pose.POSE_CONNECTIONS)
+        for obj_list in [self.p1_fruits, self.p1_bombs, self.p1_sliced_pieces]:
+            for obj in obj_list:
+                cv2.circle(image_p1, (int(obj['x'] * half_width), int(obj['y'] * height)), obj['radius'], obj['color'], -1)
+        for exp in self.p1_explosions:
+            cv2.circle(image_p1, (int(exp['x'] * half_width), int(exp['y'] * height)), int(exp['radius']), (255, 255, 255), 5)
 
-        # Draw landmarks for Player 2
-        if self.pose_data['p2'] and self.pose_data['p2'].pose_landmarks:
-            self.mp_drawing.draw_landmarks(
-                image_p2, self.pose_data['p2'].pose_landmarks, self.mp_pose.POSE_CONNECTIONS,
-                landmark_drawing_spec=self.mp_drawing.DrawingSpec(color=(0, 0, 255), thickness=2, circle_radius=2),
-                connection_drawing_spec=self.mp_drawing.DrawingSpec(color=(0, 100, 200), thickness=2, circle_radius=2)
-            )
-
-        # Draw objects for Player 1
-        for fruit in self.p1_fruits:
-            cx = int(fruit['x'] * half_width)
-            cy = int(fruit['y'] * height)
-            cv2.circle(image_p1, (cx, cy), fruit['radius'], fruit['color'], -1)
-        for bomb in self.p1_bombs:
-            cx = int(bomb['x'] * half_width)
-            cy = int(bomb['y'] * height)
-            cv2.circle(image_p1, (cx, cy), bomb['radius'], bomb['color'], -1)
-            cv2.putText(image_p1, 'B', (cx - 10, cy + 10), cv2.FONT_HERSHEY_SIMPLEX, 1, (255, 255, 255), 2)
-
-        # Draw objects for Player 2
-        for fruit in self.p2_fruits:
-            cx = int(fruit['x'] * half_width)
-            cy = int(fruit['y'] * height)
-            cv2.circle(image_p2, (cx, cy), fruit['radius'], fruit['color'], -1)
-        for bomb in self.p2_bombs:
-            cx = int(bomb['x'] * half_width)
-            cy = int(bomb['y'] * height)
-            cv2.circle(image_p2, (cx, cy), bomb['radius'], bomb['color'], -1)
-            cv2.putText(image_p2, 'B', (cx - 10, cy + 10), cv2.FONT_HERSHEY_SIMPLEX, 1, (255, 255, 255), 2)
-
-        # Combine images back
+        # --- Draw for Player 2 ---
+        if self.pose_data['p2']:
+            self.mp_drawing.draw_landmarks(image_p2, self.pose_data['p2'].pose_landmarks, self.mp_pose.POSE_CONNECTIONS)
+        for obj_list in [self.p2_fruits, self.p2_bombs, self.p2_sliced_pieces]:
+            for obj in obj_list:
+                cv2.circle(image_p2, (int(obj['x'] * half_width), int(obj['y'] * height)), obj['radius'], obj['color'], -1)
+        for exp in self.p2_explosions:
+            cv2.circle(image_p2, (int(exp['x'] * half_width), int(exp['y'] * height)), int(exp['radius']), (255, 255, 255), 5)
+        
+        # Combine images and draw UI
         frame[:, :half_width] = image_p1
         frame[:, half_width:] = image_p2
-
-        # Resize to 1920x1080
-        frame = cv2.resize(frame, (1920, 1080))
-
-        # Draw divider line
-        cv2.line(frame, (960, 0), (960, 1080), (255, 255, 255), 2)
-
-        # Dashboard rectangle
-        cv2.rectangle(frame, (0, 0), (1920, 150), (20, 20, 20), -1)
-
+        cv2.line(frame, (half_width, 0), (half_width, height), (255, 255, 255), 2)
+        cv2.rectangle(frame, (0, 0), (width, 150), (20, 20, 20), -1)
+        # (Score text rendering remains the same)
         # Player 1 Info
         cv2.putText(frame, 'PLAYER 1', (30, 40), 
                     cv2.FONT_HERSHEY_SIMPLEX, 1.0, (255, 150, 150), 2, cv2.LINE_AA)
@@ -293,11 +251,11 @@ class FruitNinjaGame(Game):
                     cv2.FONT_HERSHEY_SIMPLEX, 0.8, (0, 255, 0), 2, cv2.LINE_AA)
 
         # Player 2 Info
-        cv2.putText(frame, 'PLAYER 2', (1920 - 300, 40), 
+        cv2.putText(frame, 'PLAYER 2', (width - 300, 40), 
                     cv2.FONT_HERSHEY_SIMPLEX, 1.0, (150, 150, 255), 2, cv2.LINE_AA)
-        cv2.putText(frame, f'SCORE: {self.p2_score}', (1920 - 300, 80), 
+        cv2.putText(frame, f'SCORE: {self.p2_score}', (width - 300, 80), 
                     cv2.FONT_HERSHEY_SIMPLEX, 0.8, (255, 255, 255), 2, cv2.LINE_AA)
-        cv2.putText(frame, self.p2_feedback, (1920 - 300, 120), 
+        cv2.putText(frame, self.p2_feedback, (width - 300, 120), 
                     cv2.FONT_HERSHEY_SIMPLEX, 0.8, (0, 255, 0), 2, cv2.LINE_AA)
-
+        
         return frame
