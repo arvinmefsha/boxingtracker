@@ -6,11 +6,16 @@ import numpy as np
 from main_menu import MainMenu
 from boxing_game import BoxingGame
 from fruit_ninja_game import FruitNinjaGame
+from reaction_time_game import ReactionTimeGame
 from input_module import InputModule
 
 class GameManager:
     def __init__(self):
-        self.games = {"Start Boxing Game": BoxingGame, "Start Fruit Ninja Game": FruitNinjaGame}
+        self.games = {
+            "Start Boxing Game": BoxingGame,
+            "Start Fruit Ninja Game": FruitNinjaGame,
+            "Start Reaction Time Game": ReactionTimeGame
+        }
         self.current_game = MainMenu()
         self.input_module = InputModule()
 
@@ -38,7 +43,11 @@ class GameManager:
             else:
                 # Handle game input
                 pose_data = self.input_module.process_pose(frame)
-                self.current_game.update(pose_data)  # dt handled internally
+self.current_game.update(pose_data, 0) # dt handled internally
+   
+# Handle key for games if method exists
+if hasattr(self.current_game, 'handle_key'):
+    self.current_game.handle_key(key)
                 frame = self.current_game.render(frame if frame is not None else np.zeros((1080, 1920, 3), dtype=np.uint8))
                 
                 if key == ord('q'):
