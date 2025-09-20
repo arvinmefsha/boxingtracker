@@ -17,7 +17,7 @@ class BoxingGame(Game):
         self.p1_state = FighterState()
         self.p2_state = FighterState()
         
-        # NEW: hearts & energy (live variables reflected on HUD)
+        # Hearts & energy (live variables reflected on HUD)
         self.p1_hearts = 10
         self.p2_hearts = 10
         self.p1_energy = 10
@@ -25,9 +25,19 @@ class BoxingGame(Game):
 
         self.prev_time = time.time()
 
-        # Track last energy regen times
+        # Energy regen timers
         self.p1_last_regen = time.time()
         self.p2_last_regen = time.time()
+
+        # Combat state
+        # pending_attack[player] = {"type": "kick"/"punch", "time": ts, "defender": "p1"/"p2"}
+        self.pending_attack = {'p1': None, 'p2': None}
+        # stun_until[player] = epoch seconds (player cannot attack until then)
+        self.stun_until = {'p1': 0.0, 'p2': 0.0}
+        # who stunned this player (for early-stun-end on counterattack)
+        self.last_stunned_by = {'p1': None, 'p2': None}
+
+        self.game_over = False
 
     def reset(self):
         """Reset game state for a new session."""
@@ -47,7 +57,13 @@ class BoxingGame(Game):
         self.p1_last_regen = time.time()
         self.p2_last_regen = time.time()
 
-    # --------- helpers ---------
+        # Reset combat state
+        self.pending_attack = {'p1': None, 'p2': None}
+        self.stun_until = {'p1': 0.0, 'p2': 0.0}
+        self.last_stunned_by = {'p1': None, 'p2': None}
+        self.game_over = False
+
+    # --------- helpers to ensure dynamic fields exist (backward compatible) ---------
     def _ensure_hand_fields(self, state, side: str):
         """Ensure per-hand fields exist (stateful compatibility across versions)."""
         hand_state_attr = f'{side}_hand_state'
@@ -74,28 +90,127 @@ class BoxingGame(Game):
         if not hasattr(state, 'weave_count'):
             state.weave_count = 0
 
-    # --------- PUNCH ---------
-    def detect_punch(self, state, shoulder, elbow, wrist, other_wrist, hip, waist_y,
-                     side: str, angle_threshold: float = 150.0,
-                     shoulder_min_angle: float = 45.0, cooldown_s: float = 0.25):
+    # --------- small utilities ---------
+    def _other(self, who: str) -> str:
+        return 'p2' if who == 'p1' else 'p1'
+
+    def _can_act(self, who: str) -> bool:
+        return time.time() >= self.stun_until[who]
+
+    def _spend_energy(self, who: str, amount: int) -> bool:
+        if who == 'p1':
+            if self.p1_energy >= amount:
+                self.p1_energy -= amount
+                return True
+            return False
+        else:
+            if self.p2_energy >= amount:
+                self.p2_energy -= amount
+                return True
+            return False
+
+    def _start_attack(self, attacker: str, attack_type: str):
+        """Register a new pending attack; damage resolves in up to 2s window unless weaved."""
+        now = time.time()
+        defender = self._other(attacker)
+        self.pending_attack[attacker] = {
+            'type': attack_type,
+            'time': now,
+            'defender': defender
+        }
+
+    def _resolve_expired_attacks(self):
+        """Apply damage for any attack whose 2s weave window expired without a qualifying weave."""
+        now = time.time()
+        for attacker in ('p1', 'p2'):
+            pa = self.pending_attack[attacker]
+            if pa is None:
+                continue
+            if now - pa['time'] >= 2.0:
+                defender = pa['defender']
+                dmg = 4 if pa['type'] == 'kick' else 3
+                if defender == 'p1':
+                    self.p1_hearts = max(0, self.p1_hearts - dmg)
+                else:
+                    self.p2_hearts = max(0, self.p2_hearts - dmg)
+                # clear pending attack
+                self.pending_attack[attacker] = None
+
+    def _try_end_stun_early_on_counter(self, counterattacker: str):
+        """If the counterattacker is the same player who caused the opponent's stun, end opponent stun early."""
+        opponent = self._other(counterattacker)
+        if self.last_stunned_by[opponent] == counterattacker:
+            # End stun immediately
+            self.stun_until[opponent] = time.time()
+            self.last_stunned_by[opponent] = None
+
+    def _handle_weave_event(self, weaver: str):
+        """Apply timing logic vs opponent's pending attack when a weave occurs."""
+        opponent = self._other(weaver)
+        pa = self.pending_attack[opponent]
+        if pa is None:
+            return  # weaving without an incoming attack has no special effect (still costs energy)
+        dt = time.time() - pa['time']
+        if dt < 1.0:
+            # Perfect weave: stun the attacker for 1s, cancel attack
+            self.stun_until[opponent] = time.time() + 1.0
+            self.last_stunned_by[opponent] = weaver
+            self.pending_attack[opponent] = None
+        elif 1.0 <= dt <= 2.0:
+            # Late weave: neutralize attack (no stun, no damage)
+            self.pending_attack[opponent] = None
+        else:
+            # Outside window: no special effect
+            pass
+
+    # --------- PUNCH (both arms) ---------
+    def detect_punch(
+        self,
+        state,
+        shoulder, elbow, wrist,       # joints for this arm
+        other_wrist,                  # wrist of opposite arm
+        hip,                          # hip on the same side as this arm
+        waist_y,                      # waist line y
+        side: str,
+        angle_threshold: float = 150.0,
+        shoulder_min_angle: float = 45.0,
+        cooldown_s: float = 0.25
+    ):
+        """
+        Count a punch for the given arm ('left' or 'right') when ALL are true:
+          1) Arm extension: angle(shoulder–elbow–wrist) > angle_threshold (default 150°)
+          2) Both hands above waist: wrist.y < waist_y and other_wrist.y < waist_y
+          3) Shoulder openness: angle(hip–shoulder–elbow) >= shoulder_min_angle (default 45°)
+          4) Per-arm cooldown passed (default 0.25 s)
+        Uses a simple two-state machine per arm: IDLE -> PUNCHING -> IDLE.
+        Returns: (did_punch: bool, debug: dict)
+        """
         debug = {}
         did_punch = False
 
+        # Ensure state fields
         self._ensure_hand_fields(state, side)
 
         hand_state_attr = f'{side}_hand_state'
         punch_count_attr = f'{side}_punch_count'
         last_punch_ts_attr = f'last_{side}_punch_ts'
 
-        arm_angle = calculate_angle([shoulder.x, shoulder.y],
-                                    [elbow.x, elbow.y],
-                                    [wrist.x, wrist.y])
-        shoulder_angle = calculate_angle([hip.x, hip.y],
-                                         [shoulder.x, shoulder.y],
-                                         [elbow.x, elbow.y])
+        # Angles
+        arm_angle = calculate_angle(
+            [shoulder.x, shoulder.y],
+            [elbow.x, elbow.y],
+            [wrist.x, wrist.y]
+        )
+        shoulder_angle = calculate_angle(
+            [hip.x, hip.y],
+            [shoulder.x, shoulder.y],
+            [elbow.x, elbow.y]
+        )
 
+        # Height check: both hands above waist
         both_hands_above_waist = (wrist.y < waist_y) and (other_wrist.y < waist_y)
 
+        # Cooldown
         now = time.time()
         last_ts = getattr(state, last_punch_ts_attr)
 
@@ -115,22 +230,32 @@ class BoxingGame(Game):
             (now - last_ts) >= cooldown_s
         )
 
+        # State transitions
         if current_state == "IDLE":
             if can_count_now:
                 setattr(state, punch_count_attr, getattr(state, punch_count_attr) + 1)
                 setattr(state, hand_state_attr, "PUNCHING")
                 setattr(state, last_punch_ts_attr, now)
                 did_punch = True
+
         elif current_state == "PUNCHING":
             if (arm_angle <= angle_threshold) or (shoulder_angle < shoulder_min_angle) or (not both_hands_above_waist):
                 setattr(state, hand_state_attr, "IDLE")
 
         return did_punch, debug
 
-    # --------- KICK ---------
+    # --------- KICK (both legs) ---------
     def detect_kick(self, state, hip, ankle, side: str, idle_buffer=0.05):
+        """
+        Kick detection for a specified leg ('left' or 'right').
+        Counts a kick when the ankle rises above the hip (y decreases).
+        Uses a small buffer before resetting to IDLE to avoid jitter.
+        Returns: (did_kick: bool, debug: dict)
+        """
         debug = {}
         did_kick = False
+
+        # Ensure required attributes exist on state for the chosen side
         self._ensure_leg_fields(state, side)
         leg_state_attr = f'{side}_leg_state'
         kick_count_attr = f'{side}_kick_count'
@@ -140,11 +265,14 @@ class BoxingGame(Game):
 
         current_leg_state = getattr(state, leg_state_attr)
 
+        # Kick start: ankle above hip
         if ankle_y < hip_y:
             if current_leg_state == 'IDLE':
                 setattr(state, kick_count_attr, getattr(state, kick_count_attr) + 1)
                 did_kick = True
                 setattr(state, leg_state_attr, 'KICKING')
+
+        # Reset to IDLE with a buffer to prevent flicker
         elif ankle_y > hip_y + idle_buffer:
             setattr(state, leg_state_attr, 'IDLE')
 
@@ -153,10 +281,15 @@ class BoxingGame(Game):
             f"{side}_ankle_y": ankle_y,
             f"{side}_leg_state": getattr(state, leg_state_attr)
         })
+
         return did_kick, debug
 
-    # --------- WEAVE ---------
+    # --------- WEAVE (either side) ---------
     def detect_weave(self, state, LH, LS, RH, RS, angle_from_vertical_thresh: float = 45.0, hysteresis: float = 3.0):
+        """
+        Weave when torso line (hip->shoulder) tilts more than 'angle_from_vertical_thresh'
+        degrees away from vertical on EITHER side. (Prevents weave firing on straight kicks.)
+        """
         debug = {}
         did_weave = False
         self._ensure_weave_fields(state)
@@ -164,7 +297,7 @@ class BoxingGame(Game):
         def tilt_from_vertical(hip, shoulder):
             dx = shoulder.x - hip.x
             dy = shoulder.y - hip.y
-            angle_rad = math.atan2(abs(dx), abs(dy) + 1e-8)
+            angle_rad = math.atan2(abs(dx), abs(dy) + 1e-8)  # vertical reference
             return math.degrees(angle_rad)
 
         left_tilt = tilt_from_vertical(LH, LS)
@@ -182,54 +315,94 @@ class BoxingGame(Game):
 
         if state.weave_state == 'IDLE':
             if tilting_now:
-                state.weave_count += 1
+                state.weave_count = getattr(state, 'weave_count', 0) + 1
                 state.weave_state = 'WEAVING'
                 did_weave = True
-        else:
+        else:  # WEAVING
             if max_tilt < (angle_from_vertical_thresh - hysteresis):
                 state.weave_state = 'IDLE'
 
         return did_weave, debug
 
-    # --------- process ---------
-    def process_fighter(self, landmarks, state, dt):
-        if not landmarks:
+    # --------- per-frame processing ---------
+    def process_fighter(self, who: str, landmarks, state, dt):
+        if not landmarks or self.game_over:
             return
+
+        # Right side landmarks
         RS = landmarks[self.mp_pose.PoseLandmark.RIGHT_SHOULDER.value]
         RE = landmarks[self.mp_pose.PoseLandmark.RIGHT_ELBOW.value]
         RW = landmarks[self.mp_pose.PoseLandmark.RIGHT_WRIST.value]
         RH = landmarks[self.mp_pose.PoseLandmark.RIGHT_HIP.value]
+        RK = landmarks[self.mp_pose.PoseLandmark.RIGHT_KNEE.value]
         RA = landmarks[self.mp_pose.PoseLandmark.RIGHT_ANKLE.value]
 
+        # Left side landmarks
         LS = landmarks[self.mp_pose.PoseLandmark.LEFT_SHOULDER.value]
         LE = landmarks[self.mp_pose.PoseLandmark.LEFT_ELBOW.value]
         LW = landmarks[self.mp_pose.PoseLandmark.LEFT_WRIST.value]
         LH = landmarks[self.mp_pose.PoseLandmark.LEFT_HIP.value]
+        LK = landmarks[self.mp_pose.PoseLandmark.LEFT_KNEE.value]
         LA = landmarks[self.mp_pose.PoseLandmark.LEFT_ANKLE.value]
 
+        # Waist line: midpoint of both hips
         waist_y = (LH.y + RH.y) / 2.0
 
-        self.detect_punch(state, RS, RE, RW, LW, RH, waist_y, 'right')
-        self.detect_punch(state, LS, LE, LW, RW, LH, waist_y, 'left')
-        self.detect_kick(state, RH, RA, 'right')
-        self.detect_kick(state, LH, LA, 'left')
-        self.detect_weave(state, LH, LS, RH, RS)
+        # ----- Attacks (blocked if stunned or insufficient energy) -----
+        # Punch attempts
+        did_r_punch, _ = self.detect_punch(state, RS, RE, RW, LW, RH, waist_y, 'right')
+        did_l_punch, _ = self.detect_punch(state, LS, LE, LW, RW, LH, waist_y, 'left')
+        did_any_punch = did_r_punch or did_l_punch
 
-    # --------- input/update ---------
+        if did_any_punch and self._can_act(who):
+            # Spend 5 energy to actually throw punch
+            if self._spend_energy(who, 5):
+                self._start_attack(who, 'punch')
+                # If this is a counterattack from a recent perfect weave, end opponent stun early
+                self._try_end_stun_early_on_counter(who)
+
+        # Kick attempts
+        did_r_kick, _ = self.detect_kick(state, RH, RA, 'right')
+        did_l_kick, _ = self.detect_kick(state, LH, LA, 'left')
+        did_any_kick = did_r_kick or did_l_kick
+
+        if did_any_kick and self._can_act(who):
+            if self._spend_energy(who, 2):
+                self._start_attack(who, 'kick')
+                self._try_end_stun_early_on_counter(who)
+
+        # ----- Weave (only if has energy and not stunned) -----
+        did_weave, _ = self.detect_weave(state, LH, LS, RH, RS)
+        if did_weave and self._can_act(who):
+            # Spend 3 energy to weave; only then apply the weave effects
+            if self._spend_energy(who, 3):
+                self._handle_weave_event(who)
+
+    # --------- engine integration ---------
     def handle_input(self, pose_data):
-        self.pose_data = pose_data
+        """Process pose data for both players."""
+        self.pose_data = pose_data  # Store pose data for rendering
         current_time = time.time()
         dt = current_time - self.prev_time
+        
         if dt == 0:
             return
+        
         self.prev_time = current_time
 
+        # Process Player 1
         if pose_data['p1'] and pose_data['p1'].pose_landmarks:
-            self.process_fighter(pose_data['p1'].pose_landmarks.landmark, self.p1_state, dt)
+            self.process_fighter('p1', pose_data['p1'].pose_landmarks.landmark, self.p1_state, dt)
+
+        # Process Player 2
         if pose_data['p2'] and pose_data['p2'].pose_landmarks:
-            self.process_fighter(pose_data['p2'].pose_landmarks.landmark, self.p2_state, dt)
+            self.process_fighter('p2', pose_data['p2'].pose_landmarks.landmark, self.p2_state, dt)
 
     def update(self, pose_data, dt):
+        """Update game state (input, energy regen, attack resolution, end-state)."""
+        if self.game_over:
+            return
+
         self.handle_input(pose_data)
 
         # --- Energy regeneration every 3s ---
@@ -240,6 +413,13 @@ class BoxingGame(Game):
         if self.p2_energy < 10 and (now - self.p2_last_regen) >= 3.0:
             self.p2_energy = min(10, self.p2_energy + 1)
             self.p2_last_regen = now
+
+        # --- Resolve any attacks whose weave windows expired ---
+        self._resolve_expired_attacks()
+
+        # --- Check game over ---
+        if self.p1_hearts <= 0 or self.p2_hearts <= 0:
+            self.game_over = True
 
     # --------- rendering (dynamic layout) ---------
     def render(self, frame):
@@ -365,5 +545,12 @@ class BoxingGame(Game):
                     font, value_font_scale, (255, 100, 100), thick)
         cv2.putText(frame, p2_energy_text, (width - p2_energy_sz[0] - margin, y_line5),
                     font, value_font_scale, (100, 255, 100), thick)
+
+        # Optional: overlay game over text
+        if self.game_over:
+            go_txt = "GAME OVER"
+            size = cv2.getTextSize(go_txt, font, 1.5 * s, max(2, int(4 * s)))[0]
+            cv2.putText(frame, go_txt, (center_x - size[0] // 2, int(0.5 * height)),
+                        font, 1.5 * s, (0, 255, 255), max(2, int(4 * s)))
 
         return frame
