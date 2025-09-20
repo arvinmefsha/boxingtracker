@@ -1,6 +1,7 @@
 # game_manager.py
 
 import cv2
+import numpy as np
 
 from main_menu import MainMenu
 from boxing_game import BoxingGame
@@ -12,6 +13,7 @@ class GameManager:
         self.games = {"Start Boxing Game": BoxingGame, "Start Fruit Ninja Game": FruitNinjaGame}
         self.current_game = MainMenu()
         self.input_module = InputModule()
+        self.window_name = "Body Game Platform"
 
     def select_game(self, game_name):
         if game_name == "Exit":
@@ -23,28 +25,36 @@ class GameManager:
         return True
 
     def run(self):
+        # Create a resizable window BEFORE the main loop starts
+        cv2.namedWindow(self.window_name, cv2.WINDOW_NORMAL)
+        
         while True:
             frame = self.input_module.get_frame()
             key = cv2.waitKey(5) & 0xFF
             
+            # Create a black background if frame is not available
+            if frame is None:
+                frame = np.zeros((1080, 1920, 3), dtype=np.uint8)
+
             if self.current_game.is_menu():
                 # Handle menu input
                 selected_option = self.current_game.handle_input(key)
                 if selected_option:
                     if not self.select_game(selected_option):
                         break
-                frame = self.current_game.render(frame if frame is not None else np.zeros((1080, 1920, 3), dtype=np.uint8))
+                frame = self.current_game.render(frame)
             else:
                 # Handle game input
                 pose_data = self.input_module.process_pose(frame)
                 self.current_game.update(pose_data, 0)  # dt handled internally
-                frame = self.current_game.render(frame if frame is not None else np.zeros((1080, 1920, 3), dtype=np.uint8))
+                frame = self.current_game.render(frame)
                 
                 if key == ord('q'):
                     self.current_game.reset()
                     self.current_game = MainMenu()
 
-            cv2.imshow("Body Game Platform", frame)
+            # Display the frame in the named, resizable window
+            cv2.imshow(self.window_name, frame)
             
             if key == 27:  # Esc key to exit
                 break

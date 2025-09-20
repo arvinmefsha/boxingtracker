@@ -1,8 +1,8 @@
 import cv2
 import mediapipe as mp
 import time
-import math  # for angle-from-vertical
-#eiwrjwiofdajnf
+import math  # NEW: for angle-from-vertical
+
 from game import Game
 from helpers import calculate_distance, calculate_velocity, calculate_angle
 from fighter_state import FighterState
@@ -178,21 +178,25 @@ class BoxingGame(Game):
     # --------- DUCK (either side) ---------
     def detect_duck(self, state, LH, LS, RH, RS, angle_from_vertical_thresh: float = 45.0, hysteresis: float = 3.0):
         """
-        Duck when torso line (hip->shoulder) tilts more than 'angle_from_vertical_thresh'
-        degrees away from vertical on EITHER side. (Prevents duck firing on straight kicks.)
+        Count a 'duck' when the torso line (hip->shoulder) tilts more than
+        `angle_from_vertical_thresh` degrees away from the vertical on EITHER side.
 
-        left_tilt  = angle between (LS - LH) and vertical axis
-        right_tilt = angle between (RS - RH) and vertical axis
-        DUCK if max(left_tilt, right_tilt) > threshold, with small hysteresis.
+        - left_tilt  = angle between vector (LS - LH) and vertical axis
+        - right_tilt = angle between vector (RS - RH) and vertical axis
+        If max(left_tilt, right_tilt) > threshold -> DUCK.
+        Simple state machine with small hysteresis to avoid repeat counts.
         """
         debug = {}
         did_duck = False
         self._ensure_duck_fields(state)
 
         def tilt_from_vertical(hip, shoulder):
+            # Vector hip->shoulder
             dx = shoulder.x - hip.x
             dy = shoulder.y - hip.y
-            angle_rad = math.atan2(abs(dx), abs(dy) + 1e-8)  # vertical reference
+            # Angle from vertical: arctan2(|dx|, |dy|)
+            # (vertical is dy direction; larger horizontal component -> bigger tilt)
+            angle_rad = math.atan2(abs(dx), abs(dy) + 1e-8)
             return math.degrees(angle_rad)
 
         left_tilt = tilt_from_vertical(LH, LS)
@@ -214,6 +218,7 @@ class BoxingGame(Game):
                 state.duck_state = 'DUCKING'
                 did_duck = True
         else:  # DUCKING
+            # reset once tilt drops below (threshold - hysteresis)
             if max_tilt < (angle_from_vertical_thresh - hysteresis):
                 state.duck_state = 'IDLE'
 
@@ -278,9 +283,9 @@ class BoxingGame(Game):
         """Update game state (currently handled in handle_input for boxing)."""
         self.handle_input(pose_data)
 
-    # --------- rendering (dynamic layout) ---------
+    # --------- rendering ---------
     def render(self, frame):
-        """Render the boxing game visuals with dynamic, resolution-relative layout."""
+        """Render the boxing game visuals (split-screen, landmarks, UI)."""
         height, width, _ = frame.shape
         half_width = width // 2
         image_p1 = frame[:, :half_width]
@@ -302,102 +307,77 @@ class BoxingGame(Game):
                 connection_drawing_spec=self.mp_drawing.DrawingSpec(color=(0, 100, 200), thickness=2, circle_radius=2)
             )
 
-        # ---- Dynamic UI scaling parameters (relative to 1920x1080 design) ----
-        sx = width / 1920.0
-        sy = height / 1080.0
-        s = min(sx, sy)
+        # Combine images back
+        frame[:, :half_width] = image_p1
+        frame[:, half_width:] = image_p2
 
-        # Dashboard height proportional to screen height (145 on 1080p)
-        dashboard_h = max(80, int(145 * sy))
+        # Resize to 1920x1080
+        frame = cv2.resize(frame, (1920, 1080))
 
-        # Margins and fonts proportional
-        margin = max(8, int(15 * sx))
-        title_font_scale = 0.7 * s
-        value_font_scale = 0.9 * s
-        font = cv2.FONT_HERSHEY_SIMPLEX
-        thick = max(1, int(2 * s))
-        line_thick = max(2, int(2 * s))
-
-        # Y positions proportional to height (based on 25/60/95/130 on 1080p)
-        y_title = int(25 * sy)
-        y_line1 = int(60 * sy)
-        y_line2 = int(95 * sy)
-        y_line3 = int(130 * sy)
-
-        # ---- HUD background and divider ----
-        cv2.rectangle(frame, (0, 0), (width, dashboard_h), (20, 20, 20), -1)
-        center_x = width // 2
-        cv2.line(frame, (center_x, 0), (center_x, height), (255, 255, 255), line_thick)
+        # Increase dashboard height to fit Ducks line
+        dashboard_h = 145
+        # Draw the black dashboard box FIRST
+        cv2.rectangle(frame, (0, 0), (1920, dashboard_h), (20, 20, 20), -1)
+        
+        # Draw the white dividing line SECOND, so it appears on top of the box
+        cv2.line(frame, (960, 0), (960, 1080), (255, 255, 255), 2)
+        
+        margin = 15
 
         # --- Player 1 Info (Left Panel) ---
-        cv2.putText(frame, 'FIGHTER 1 (BLUE)', (margin, y_title), font, title_font_scale, (255, 150, 150), thick)
-
+        cv2.putText(frame, 'FIGHTER 1 (BLUE)', (margin, 25), cv2.FONT_HERSHEY_SIMPLEX, 0.7, (255, 150, 150), 2)
+        
         # Totals for P1
         p1_total_punches = getattr(self.p1_state, 'right_punch_count', 0) + getattr(self.p1_state, 'left_punch_count', 0)
         p1_total_kicks = getattr(self.p1_state, 'right_kick_count', 0) + getattr(self.p1_state, 'left_kick_count', 0)
         p1_ducks = getattr(self.p1_state, 'duck_count', 0)
-
         p1_punch_text = f'PUNCHES: {p1_total_punches}'
-        p1_kick_text  = f'KICKS: {p1_total_kicks}'
-        p1_duck_text  = f'DUCKS: {p1_ducks}'
+        p1_kick_text = f'KICKS: {p1_total_kicks}'
+        p1_duck_text = f'DUCKS: {p1_ducks}'
+        cv2.putText(frame, p1_punch_text, (margin, 60), cv2.FONT_HERSHEY_SIMPLEX, 0.9, (255, 255, 255), 2)
+        cv2.putText(frame, p1_kick_text, (margin, 95), cv2.FONT_HERSHEY_SIMPLEX, 0.9, (255, 255, 255), 2)
+        cv2.putText(frame, p1_duck_text, (margin, 130), cv2.FONT_HERSHEY_SIMPLEX, 0.9, (255, 255, 255), 2)
 
-        cv2.putText(frame, p1_punch_text, (margin, y_line1), font, value_font_scale, (255, 255, 255), thick)
-        cv2.putText(frame, p1_kick_text,  (margin, y_line2), font, value_font_scale, (255, 255, 255), thick)
-        cv2.putText(frame, p1_duck_text,  (margin, y_line3), font, value_font_scale, (255, 255, 255), thick)
-
-        # States right-aligned to the center divider
-        p1_arm_combined = 'PUNCHING' if (
-            getattr(self.p1_state, 'right_hand_state', 'IDLE') == 'PUNCHING' or
-            getattr(self.p1_state, 'left_hand_state',  'IDLE') == 'PUNCHING'
-        ) else 'IDLE'
-        p1_leg_combined = 'KICKING' if (
-            getattr(self.p1_state, 'right_leg_state', 'IDLE') == 'KICKING' or
-            getattr(self.p1_state, 'left_leg_state',  'IDLE') == 'KICKING'
-        ) else 'IDLE'
-
+        # States are right-aligned to the center divider
+        # Combine arm state: show PUNCHING if either arm is punching
+        p1_arm_combined = 'PUNCHING' if (getattr(self.p1_state, 'right_hand_state', 'IDLE') == 'PUNCHING' or getattr(self.p1_state, 'left_hand_state', 'IDLE') == 'PUNCHING') else 'IDLE'
         p1_arm_text = f'ARM: {p1_arm_combined}'
+        # Combine leg state
+        p1_leg_combined = 'KICKING' if (getattr(self.p1_state, 'right_leg_state', 'IDLE') == 'KICKING' or getattr(self.p1_state, 'left_leg_state', 'IDLE') == 'KICKING') else 'IDLE'
         p1_leg_text = f'LEG: {p1_leg_combined}'
-        p1_arm_sz = cv2.getTextSize(p1_arm_text, font, value_font_scale, thick)[0]
-        p1_leg_sz = cv2.getTextSize(p1_leg_text, font, value_font_scale, thick)[0]
-
-        cv2.putText(frame, p1_arm_text, (center_x - p1_arm_sz[0] - margin, y_line1), font, value_font_scale, (255, 255, 255), thick)
-        cv2.putText(frame, p1_leg_text, (center_x - p1_leg_sz[0] - margin, y_line2), font, value_font_scale, (255, 255, 255), thick)
+        p1_arm_text_size = cv2.getTextSize(p1_arm_text, cv2.FONT_HERSHEY_SIMPLEX, 0.9, 2)[0]
+        p1_leg_text_size = cv2.getTextSize(p1_leg_text, cv2.FONT_HERSHEY_SIMPLEX, 0.9, 2)[0]
+        
+        cv2.putText(frame, p1_arm_text, (960 - p1_arm_text_size[0] - margin, 60), cv2.FONT_HERSHEY_SIMPLEX, 0.9, (255, 255, 255), 2)
+        cv2.putText(frame, p1_leg_text, (960 - p1_leg_text_size[0] - margin, 95), cv2.FONT_HERSHEY_SIMPLEX, 0.9, (255, 255, 255), 2)
 
         # --- Player 2 Info (Right Panel) ---
-        p2_arm_combined = 'PUNCHING' if (
-            getattr(self.p2_state, 'right_hand_state', 'IDLE') == 'PUNCHING' or
-            getattr(self.p2_state, 'left_hand_state',  'IDLE') == 'PUNCHING'
-        ) else 'IDLE'
-        p2_leg_combined = 'KICKING' if (
-            getattr(self.p2_state, 'right_leg_state', 'IDLE') == 'KICKING' or
-            getattr(self.p2_state, 'left_leg_state',  'IDLE') == 'KICKING'
-        ) else 'IDLE'
-
+        # States are left-aligned to the center divider
+        p2_arm_combined = 'PUNCHING' if (getattr(self.p2_state, 'right_hand_state', 'IDLE') == 'PUNCHING' or getattr(self.p2_state, 'left_hand_state', 'IDLE') == 'PUNCHING') else 'IDLE'
         p2_arm_text = f'ARM: {p2_arm_combined}'
+        p2_leg_combined = 'KICKING' if (getattr(self.p2_state, 'right_leg_state', 'IDLE') == 'KICKING' or getattr(self.p2_state, 'left_leg_state', 'IDLE') == 'KICKING') else 'IDLE'
         p2_leg_text = f'LEG: {p2_leg_combined}'
-        cv2.putText(frame, p2_arm_text, (center_x + margin, y_line1), font, value_font_scale, (255, 255, 255), thick)
-        cv2.putText(frame, p2_leg_text, (center_x + margin, y_line2), font, value_font_scale, (255, 255, 255), thick)
-
-        # Title right-aligned to the screen edge
+        cv2.putText(frame, p2_arm_text, (960 + margin, 60), cv2.FONT_HERSHEY_SIMPLEX, 0.9, (255, 255, 255), 2)
+        cv2.putText(frame, p2_leg_text, (960 + margin, 95), cv2.FONT_HERSHEY_SIMPLEX, 0.9, (255, 255, 255), 2)
+        
+        # Title and Counters are right-aligned to the screen edge
         p2_title = 'FIGHTER 2 (RED)'
-        p2_title_sz = cv2.getTextSize(p2_title, font, title_font_scale, thick)[0]
-        cv2.putText(frame, p2_title, (width - p2_title_sz[0] - margin, y_title), font, title_font_scale, (150, 150, 255), thick)
+        p2_title_size = cv2.getTextSize(p2_title, cv2.FONT_HERSHEY_SIMPLEX, 0.7, 2)[0]
+        cv2.putText(frame, p2_title, (1920 - p2_title_size[0] - margin, 25), cv2.FONT_HERSHEY_SIMPLEX, 0.7, (150, 150, 255), 2)
 
-        # Totals for P2 (right-aligned)
+        # Totals for P2
         p2_total_punches = getattr(self.p2_state, 'right_punch_count', 0) + getattr(self.p2_state, 'left_punch_count', 0)
-        p2_total_kicks   = getattr(self.p2_state, 'right_kick_count', 0) + getattr(self.p2_state, 'left_kick_count', 0)
-        p2_ducks         = getattr(self.p2_state, 'duck_count', 0)
-
+        p2_total_kicks = getattr(self.p2_state, 'right_kick_count', 0) + getattr(self.p2_state, 'left_kick_count', 0)
+        p2_ducks = getattr(self.p2_state, 'duck_count', 0)
         p2_punch_text = f'PUNCHES: {p2_total_punches}'
-        p2_kick_text  = f'KICKS: {p2_total_kicks}'
-        p2_duck_text  = f'DUCKS: {p2_ducks}'
-
-        p2_punch_sz = cv2.getTextSize(p2_punch_text, font, value_font_scale, thick)[0]
-        p2_kick_sz  = cv2.getTextSize(p2_kick_text,  font, value_font_scale, thick)[0]
-        p2_duck_sz  = cv2.getTextSize(p2_duck_text,  font, value_font_scale, thick)[0]
-
-        cv2.putText(frame, p2_punch_text, (width - p2_punch_sz[0] - margin, y_line1), font, value_font_scale, (255, 255, 255), thick)
-        cv2.putText(frame, p2_kick_text,  (width - p2_kick_sz[0]  - margin, y_line2), font, value_font_scale, (255, 255, 255), thick)
-        cv2.putText(frame, p2_duck_text,  (width - p2_duck_sz[0]  - margin, y_line3), font, value_font_scale, (255, 255, 255), thick)
+        p2_kick_text = f'KICKS: {p2_total_kicks}'
+        p2_duck_text = f'DUCKS: {p2_ducks}'
+        p2_punch_text_size = cv2.getTextSize(p2_punch_text, cv2.FONT_HERSHEY_SIMPLEX, 0.9, 2)[0]
+        p2_kick_text_size = cv2.getTextSize(p2_kick_text, cv2.FONT_HERSHEY_SIMPLEX, 0.9, 2)[0]
+        p2_duck_text_size = cv2.getTextSize(p2_duck_text, cv2.FONT_HERSHEY_SIMPLEX, 0.9, 2)[0]
+        
+        cv2.putText(frame, p2_punch_text, (1920 - p2_punch_text_size[0] - margin, 60), cv2.FONT_HERSHEY_SIMPLEX, 0.9, (255, 255, 255), 2)
+        cv2.putText(frame, p2_kick_text, (1920 - p2_kick_text_size[0] - margin, 95), cv2.FONT_HERSHEY_SIMPLEX, 0.9, (255, 255, 255), 2)
+        cv2.putText(frame, p2_duck_text, (1920 - p2_duck_text_size[0] - margin, 130), cv2.FONT_HERSHEY_SIMPLEX, 0.9, (255, 255, 255), 2)
 
         return frame
