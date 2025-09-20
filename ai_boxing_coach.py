@@ -224,12 +224,15 @@ while cap.isOpened():
 
     prev_time = current_time
 
-    # --- Display Dashboard (FIXED LAYOUT) ---
+    # --- Display Dashboard (FIXED LINE) ---
     image[:, :width//2] = image_p1
     image[:, width//2:] = image_p2
-    cv2.line(image, (width//2, 0), (width//2, height), (255, 255, 255), 2)
     
+    # Draw the black dashboard box FIRST
     cv2.rectangle(image, (0, 0), (width, 110), (20, 20, 20), -1)
+    
+    # Draw the white dividing line SECOND, so it appears on top of the box
+    cv2.line(image, (width//2, 0), (width//2, height), (255, 255, 255), 2)
     
     margin = 15
 
