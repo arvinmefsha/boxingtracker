@@ -28,6 +28,7 @@ class ReactionTimeGame(Game):
         self.p2_wins = 0
         self.target_wins = 3  # First to 3 wins
         self.round_completed = False  # Flag to prevent re-incrementing wins
+        self.current_round_winner = None  # Cached winner for display (1, 2, or None for tie/incomplete)
 
     def reset(self):
         """Reset game state."""
@@ -41,6 +42,7 @@ class ReactionTimeGame(Game):
         self.p1_cheated = False
         self.p2_cheated = False
         self.round_completed = False
+        self.current_round_winner = None
         self.pose_data = {'p1': None, 'p2': None}
 
     def reset_match(self):
@@ -62,6 +64,7 @@ class ReactionTimeGame(Game):
                     self.p1_cheated = False
                     self.p2_cheated = False
                     self.round_completed = False
+                    self.current_round_winner = None
                     self.state = 'WAITING'
                     self.delay = random.uniform(3, 5)
                     self.start_time = time.time()
@@ -76,6 +79,7 @@ class ReactionTimeGame(Game):
                     self.p1_cheated = False
                     self.p2_cheated = False
                     self.round_completed = False
+                    self.current_round_winner = None
                     self.state = 'WAITING'
                     self.delay = random.uniform(3, 5)
                     self.start_time = time.time()
@@ -86,41 +90,50 @@ class ReactionTimeGame(Game):
     def determine_round_winner(self):
         """Determine winner of the current round and update win counts."""
         if self.round_completed:
-            return None  # Already processed
+            return self.current_round_winner  # Return cached value
         
         if self.p1_cheated and self.p2_cheated:
             self.round_completed = True
+            self.current_round_winner = None
             return None  # Tie, no win
         elif self.p1_cheated:
             self.p2_wins += 1
             self.round_completed = True
+            self.current_round_winner = 2
             return 2
         elif self.p2_cheated:
             self.p1_wins += 1
             self.round_completed = True
+            self.current_round_winner = 1
             return 1
         elif self.p1_time is None and self.p2_time is None:
             self.round_completed = True
+            self.current_round_winner = None
             return None  # Incomplete, no win
         elif self.p1_time is None:
             self.p2_wins += 1
             self.round_completed = True
+            self.current_round_winner = 2
             return 2
         elif self.p2_time is None:
             self.p1_wins += 1
             self.round_completed = True
+            self.current_round_winner = 1
             return 1
         else:
             if self.p1_time < self.p2_time:
                 self.p1_wins += 1
                 self.round_completed = True
+                self.current_round_winner = 1
                 return 1
             elif self.p2_time < self.p1_time:
                 self.p2_wins += 1
                 self.round_completed = True
+                self.current_round_winner = 2
                 return 2
             else:
                 self.round_completed = True
+                self.current_round_winner = None
                 return None  # Tie, no win
 
     def is_raised(self, landmarks):
@@ -186,7 +199,8 @@ class ReactionTimeGame(Game):
         
         elif self.state == 'RESULTS':
             # Determine winner only once per round
-            self.determine_round_winner()
+            if not self.round_completed:
+                self.determine_round_winner()
 
     def render(self, frame):
         """Render the reaction time game visuals."""
@@ -238,7 +252,7 @@ class ReactionTimeGame(Game):
             # Green bar
             pass
         elif self.state == 'RESULTS':
-            round_winner = self.determine_round_winner() if not self.round_completed else None
+            round_winner = self.current_round_winner
             match_over = self.p1_wins >= self.target_wins or self.p2_wins >= self.target_wins
             
             if match_over:
