@@ -22,6 +22,8 @@ class ReactionTimeGame(Game):
         self.p2_time = None
         self.first_reaction_time = None  # Time when first player reacted
         self.reaction_timeout = 1  # 1 second after first reaction
+        self.p1_cheated = False
+        self.p2_cheated = False
 
     def reset(self):
         """Reset game state."""
@@ -32,6 +34,8 @@ class ReactionTimeGame(Game):
         self.p1_time = None
         self.p2_time = None
         self.first_reaction_time = None
+        self.p1_cheated = False
+        self.p2_cheated = False
         self.pose_data = {'p1': None, 'p2': None}
 
     def handle_key(self, key):
@@ -41,6 +45,8 @@ class ReactionTimeGame(Game):
                 self.p1_time = None
                 self.p2_time = None
                 self.first_reaction_time = None
+                self.p1_cheated = False
+                self.p2_cheated = False
                 self.state = 'WAITING'
                 self.delay = random.uniform(3, 5)
                 self.start_time = time.time()
@@ -72,6 +78,12 @@ class ReactionTimeGame(Game):
         current_time = time.time()
         
         if self.state == 'WAITING':
+            # Check for cheating (hands raised during waiting)
+            if self.is_raised(pose_data['p1'].pose_landmarks.landmark if pose_data['p1'] and pose_data['p1'].pose_landmarks else None):
+                self.p1_cheated = True
+            if self.is_raised(pose_data['p2'].pose_landmarks.landmark if pose_data['p2'] and pose_data['p2'].pose_landmarks else None):
+                self.p2_cheated = True
+            
             if current_time - self.start_time >= self.delay:
                 self.state = 'GREEN'
                 self.green_time = current_time
@@ -89,8 +101,11 @@ class ReactionTimeGame(Game):
                 if self.first_reaction_time is None:
                     self.first_reaction_time = current_time
             
-            # Check for timeout after first reaction
-            if self.first_reaction_time is not None and current_time - self.first_reaction_time > self.reaction_timeout:
+            # End immediately if both have reacted
+            if self.p1_time is not None and self.p2_time is not None:
+                self.state = 'RESULTS'
+            # Or timeout after first reaction if only one has reacted
+            elif self.first_reaction_time is not None and current_time - self.first_reaction_time > self.reaction_timeout:
                 self.state = 'RESULTS'
 
     def render(self, frame):
@@ -143,7 +158,19 @@ class ReactionTimeGame(Game):
             # Green bar
             pass
         elif self.state == 'RESULTS':
-            if self.p1_time is None and self.p2_time is None:
+            if self.p1_cheated and self.p2_cheated:
+                winner_text = "Both Cheated - Tie!"
+                p1_text = "Cheated"
+                p2_text = "Cheated"
+            elif self.p1_cheated:
+                winner_text = "Player 2 Wins!"
+                p1_text = "Cheated"
+                p2_text = f"Time: {self.p2_time:.2f}s" if self.p2_time is not None else "No Reaction"
+            elif self.p2_cheated:
+                winner_text = "Player 1 Wins!"
+                p1_text = f"Time: {self.p1_time:.2f}s" if self.p1_time is not None else "No Reaction"
+                p2_text = "Cheated"
+            elif self.p1_time is None and self.p2_time is None:
                 winner_text = "Incomplete Game"
                 p1_text = "No Reaction"
                 p2_text = "No Reaction"
