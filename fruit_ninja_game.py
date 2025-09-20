@@ -202,23 +202,17 @@ class FruitNinjaGame(Game):
                     slice_angle_deg = np.degrees(slice_angle_rad) 
 
                     sliced_fruits = self.check_slice(prev_wrists[hand],  wrists[hand], fruits, half_width, height)
-                    if not sliced_fruits: 
-                        continue 
-                    if self.slice_sound: 
+                    
+                    if sliced_fruits and self.slice_sound:
                         self.slice_sound.play()
-
 
                     for i in sorted(sliced_fruits, reverse=True):
                         fruit = fruits.pop(i)
                         score += 1
                         feedback_text = "Sliced!"
-
-
                         
-                        ## NEW: Calculate separation velocity based on slice angle
                         # Push pieces perpendicular to the slice direction
                         separation_speed = 0.5 
-                        # Angle for left piece (slice_angle + 90 deg) and right piece (slice_angle - 90 deg)
                         left_vx = separation_speed * np.cos(slice_angle_rad + np.pi/2) 
                         left_vy = separation_speed * np.sin(slice_angle_rad + np.pi/2)
                         right_vx = separation_speed * np.cos(slice_angle_rad - np.pi/2)
@@ -239,12 +233,13 @@ class FruitNinjaGame(Game):
                             'image': rotate_image(fruit['images']['right'], slice_angle_deg),
                             'rotation_speed': random.uniform(-100, 100)
                         }
-                        self.p1_sliced_pieces.extend([piece1, piece2])
+                        ## FIXED: Changed self.p1_sliced_pieces to the generic 'sliced_pieces' list
+                        sliced_pieces.extend([piece1, piece2])
                     
                     bomb_sliced = self.check_slice(prev_wrists[hand], wrists[hand], bombs, half_width, height)
                     if bomb_sliced and self.bomb_sound:
                         self.bomb_sound.play()
-                    # Bomb Slicing (remains unchanged, except for using self.dt)
+                    # Bomb Slicing
                     for i in sorted(bomb_sliced, reverse=True):
                         bomb = bombs.pop(i)
                         score -= 5
