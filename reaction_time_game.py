@@ -79,10 +79,17 @@ class ReactionTimeGame(Game):
         
         if self.state == 'WAITING':
             # Check for cheating (hands raised during waiting)
-            if self.is_raised(pose_data['p1'].pose_landmarks.landmark if pose_data['p1'] and pose_data['p1'].pose_landmarks else None):
+            p1_raised = self.is_raised(pose_data['p1'].pose_landmarks.landmark if pose_data['p1'] and pose_data['p1'].pose_landmarks else None)
+            p2_raised = self.is_raised(pose_data['p2'].pose_landmarks.landmark if pose_data['p2'] and pose_data['p2'].pose_landmarks else None)
+            
+            if p1_raised:
                 self.p1_cheated = True
-            if self.is_raised(pose_data['p2'].pose_landmarks.landmark if pose_data['p2'] and pose_data['p2'].pose_landmarks else None):
+                self.state = 'RESULTS'
+                return  # End immediately
+            if p2_raised:
                 self.p2_cheated = True
+                self.state = 'RESULTS'
+                return  # End immediately
             
             if current_time - self.start_time >= self.delay:
                 self.state = 'GREEN'
