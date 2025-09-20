@@ -8,9 +8,12 @@ import numpy as np
 import os
 import sys
 
+import pygame
+
 from game import Game
 from helpers import calculate_velocity, line_circle_intersection
 
+# ... (overlay_transparent function remains the same) ...
 def overlay_transparent(background, overlay, x, y):
     """
     Overlays a transparent PNG on a background image, correctly handling edges.
@@ -36,6 +39,32 @@ def overlay_transparent(background, overlay, x, y):
     background[y_start_bg:y_end_bg, x_start_bg:x_end_bg] = background_part + overlay_part
     return background
 
+## NEW HELPER FUNCTION: Rotates an image around its center
+## FIXED HELPER FUNCTION: Rotates an image around its center, preserving alpha channel.
+def rotate_image(image, angle):
+    (h, w) = image.shape[:2]
+    center = (w // 2, h // 2)
+    M = cv2.getRotationMatrix2D(center, angle, 1.0)
+
+    # If the image has an alpha channel (4 channels)
+    if image.shape[2] == 4:
+        # Split into RGB and Alpha
+        rgb = image[:, :, :3]
+        alpha = image[:, :, 3]
+
+        # Rotate RGB channels
+        rotated_rgb = cv2.warpAffine(rgb, M, (w, h), borderMode=cv2.BORDER_CONSTANT, borderValue=(0, 0, 0)) # Fill black for background
+        # Rotate Alpha channel (as grayscale)
+        rotated_alpha = cv2.warpAffine(alpha, M, (w, h), borderMode=cv2.BORDER_CONSTANT, borderValue=0) # Fill 0 for transparent
+
+        # Combine rotated RGB and Alpha back into a 4-channel image
+        rotated_image = cv2.merge([rotated_rgb[:,:,0], rotated_rgb[:,:,1], rotated_rgb[:,:,2], rotated_alpha])
+    else:
+        # If no alpha channel, just rotate normally (border will be filled with black)
+        rotated_image = cv2.warpAffine(image, M, (w, h), borderMode=cv2.BORDER_CONSTANT, borderValue=(0, 0, 0))
+    
+    return rotated_image
+
 class FruitNinjaGame(Game):
     def __init__(self):
         self.mp_pose = mp.solutions.pose
@@ -43,13 +72,13 @@ class FruitNinjaGame(Game):
         self.pose = self.mp_pose.Pose(min_detection_confidence=0.5, min_tracking_confidence=0.5)
         self.pose_data = {'p1': None, 'p2': None}
         
-        self.gravity = 2
+        self.gravity = 1.0
         self.spawn_interval = 0.9
-        self.slice_velocity_threshold = 800.0
-        self.object_radius = 40 # Collision size
-
-        ## NEW: Define the visual size for the images.
-        self.image_size = (200, 200) # (width, height) in pixels
+        self.slice_velocity_threshold = 1500.0
+        
+        ## KEPT: Image size at 200x200
+        self.image_size = (200, 200) 
+        self.object_radius = self.image_size[0] // 2
 
         print("Loading assets...")
         self.fruit_images = self.load_fruit_images('assets')
@@ -57,12 +86,32 @@ class FruitNinjaGame(Game):
         if self.bomb_image is None:
             print("\n--- ERROR: Failed to load 'bomb.png'. Make sure it's in the 'assets' folder. ---\n")
             sys.exit(1)
-        
-        ## NEW: Resize the bomb image after loading.
         self.bomb_image = cv2.resize(self.bomb_image, self.image_size, interpolation=cv2.INTER_AREA)
-
         print("Assets loaded successfully.")
+
+
+        print("Initializing sound...")
+        pygame.mixer.init()
+        try:
+            self.theme_sound = pygame.mixer.Sound('assets/sounds/fruitninjatheme.mp3')
+            self.slice_sound = pygame.mixer.Sound('assets/sounds/slice.mp3')
+            self.bomb_sound = pygame.mixer.Sound('assets/sounds/explosion.mp3')
+            # You can set volume for each sound (0.0 to 1.0)
+            self.theme_sound.set_volume(0.3)
+            self.slice_sound.set_volume(0.3)
+            self.bomb_sound.set_volume(0.7)
+            print("Sound loaded successfully.")
+        except pygame.error as e:
+            print(f"\n--- Sound Error: {e} ---")
+            print("Could not load sound files. Make sure 'slice.wav' and 'bomb.wav' are in 'assets/sound/'.")
+            print("Game will run without sound.")
+            self.theme_sound = None
+            self.slice_sound = None
+            self.bomb_sound = None
+
         
+        if self.theme_sound:
+            self.theme_sound.play(loops=-1) 
         self.reset()
 
     def load_fruit_images(self, path):
@@ -77,12 +126,9 @@ class FruitNinjaGame(Game):
                 if img is None:
                     print(f"\n--- ERROR: Failed to load image: {os.path.basename(file_path)} ---\n")
                     sys.exit(1)
-                
-                ## NEW: Resize each fruit image after loading.
                 img = cv2.resize(img, self.image_size, interpolation=cv2.INTER_AREA)
                 images[fruit][part] = img
         return images
-    
 
     def reset(self):
         self.p1_score, self.p2_score = 0, 0
@@ -98,7 +144,8 @@ class FruitNinjaGame(Game):
 
     def spawn_object(self, is_fruit=True):
         vx = random.uniform(-0.3, 0.3)
-        vy = random.uniform(-1.5, -1.1)
+        ## KEPT: Modified initial vertical velocity
+        vy = random.uniform(-1.2, -0.9) 
         obj = {'x': random.uniform(0.2, 0.8), 'y': 1.1, 'vx': vx, 'vy': vy, 'radius': self.object_radius}
         if is_fruit:
             fruit_type = random.choice(list(self.fruit_images.keys()))
@@ -113,10 +160,15 @@ class FruitNinjaGame(Game):
             obj['x'] += obj['vx'] * dt
             obj['y'] += obj['vy'] * dt
             obj['vy'] += self.gravity * dt
+            # Optional: Add some rotation to sliced pieces for extra effect
+            if 'rotation_speed' in obj:
+                obj['angle'] = (obj.get('angle', 0) + obj['rotation_speed'] * dt) % 360
+
             if 'life' in obj:
                 obj['life'] -= 1
                 if obj['life'] <= 0: continue
-            if obj['y'] < 1.3: new_objects.append(obj)
+            if obj['y'] < 1.3: 
+                new_objects.append(obj)
         return new_objects
 
     def check_slice(self, prev_pos, curr_pos, objects, half_width, height):
@@ -124,11 +176,12 @@ class FruitNinjaGame(Game):
         if prev_pos is None or curr_pos is None: return sliced
         start, end = tuple(prev_pos), tuple(curr_pos)
         for i, obj in enumerate(objects):
+            if not (0 <= obj['y'] <= 1.0): continue # Only slice visible objects
             center = (obj['x'] * half_width, obj['y'] * height)
             if line_circle_intersection(start, end, center, obj['radius']):
                 sliced.append(i)
         return sliced
-
+        
     def process_slicing_for_player(self, player_data):
         pose, prev_wrists, fruits, bombs, sliced_pieces, particles, score, feedback_text = player_data
         
@@ -141,14 +194,58 @@ class FruitNinjaGame(Game):
             if prev_wrists[hand]:
                 velocity = calculate_velocity(wrists[hand], prev_wrists[hand], self.dt)
                 if velocity > self.slice_velocity_threshold:
-                    for i in sorted(self.check_slice(prev_wrists[hand], wrists[hand], fruits, half_width, height), reverse=True):
+                    # Calculate slice angle
+                    dx = wrists[hand][0] - prev_wrists[hand][0]
+                    dy = wrists[hand][1] - prev_wrists[hand][1]
+                    # Angle in degrees, 0 is horizontal right, positive is counter-clockwise
+                    slice_angle_rad = np.arctan2(-dy, dx) # -dy because screen Y is inverted
+                    slice_angle_deg = np.degrees(slice_angle_rad) 
+
+                    sliced_fruits = self.check_slice(prev_wrists[hand],  wrists[hand], fruits, half_width, height)
+                    if not sliced_fruits: 
+                        continue 
+                    if self.slice_sound: 
+                        self.slice_sound.play()
+
+
+                    for i in sorted(sliced_fruits, reverse=True):
                         fruit = fruits.pop(i)
                         score += 1
                         feedback_text = "Sliced!"
-                        sliced_pieces.extend([
-                            {'x': fruit['x'], 'y': fruit['y'], 'vx': -0.5, 'vy': fruit['vy'], 'life': 40, 'image': fruit['images']['left']},
-                            {'x': fruit['x'], 'y': fruit['y'], 'vx': 0.5, 'vy': fruit['vy'], 'life': 40, 'image': fruit['images']['right']}])
-                    for i in sorted(self.check_slice(prev_wrists[hand], wrists[hand], bombs, half_width, height), reverse=True):
+
+
+                        
+                        ## NEW: Calculate separation velocity based on slice angle
+                        # Push pieces perpendicular to the slice direction
+                        separation_speed = 0.5 
+                        # Angle for left piece (slice_angle + 90 deg) and right piece (slice_angle - 90 deg)
+                        left_vx = separation_speed * np.cos(slice_angle_rad + np.pi/2) 
+                        left_vy = separation_speed * np.sin(slice_angle_rad + np.pi/2)
+                        right_vx = separation_speed * np.cos(slice_angle_rad - np.pi/2)
+                        right_vy = separation_speed * np.sin(slice_angle_rad - np.pi/2)
+
+                        # Create rotated pieces
+                        piece1 = {
+                            'x': fruit['x'], 'y': fruit['y'], 
+                            'vx': fruit['vx'] + left_vx, 'vy': fruit['vy'] + left_vy, 
+                            'life': 60, 
+                            'image': rotate_image(fruit['images']['left'], slice_angle_deg),
+                            'rotation_speed': random.uniform(-100, 100) # Add some rotational spin
+                        }
+                        piece2 = {
+                            'x': fruit['x'], 'y': fruit['y'], 
+                            'vx': fruit['vx'] + right_vx, 'vy': fruit['vy'] + right_vy, 
+                            'life': 60, 
+                            'image': rotate_image(fruit['images']['right'], slice_angle_deg),
+                            'rotation_speed': random.uniform(-100, 100)
+                        }
+                        self.p1_sliced_pieces.extend([piece1, piece2])
+                    
+                    bomb_sliced = self.check_slice(prev_wrists[hand], wrists[hand], bombs, half_width, height)
+                    if bomb_sliced and self.bomb_sound:
+                        self.bomb_sound.play()
+                    # Bomb Slicing (remains unchanged, except for using self.dt)
+                    for i in sorted(bomb_sliced, reverse=True):
                         bomb = bombs.pop(i)
                         score -= 5
                         feedback_text = "Boom!"
@@ -194,22 +291,31 @@ class FruitNinjaGame(Game):
         image_p1 = frame[:, :half_width]
         image_p2 = frame[:, half_width:]
 
-        for obj in self.p1_fruits: overlay_transparent(image_p1, obj['images']['whole'], int(obj['x'] * half_width), int(obj['y'] * height))
-        for obj in self.p1_bombs: overlay_transparent(image_p1, obj['image'], int(obj['x'] * half_width), int(obj['y'] * height))
-        for piece in self.p1_sliced_pieces: overlay_transparent(image_p1, piece['image'], int(piece['x'] * half_width), int(piece['y'] * height))
+        # Drawing loop for p1_sliced_pieces needs to handle rotation
+        for obj_list in [self.p1_fruits, self.p1_bombs, self.p1_sliced_pieces]:
+            for obj in obj_list:
+                img_to_draw = obj['image'] if 'image' in obj else obj['images']['whole']
+                if 'angle' in obj: # If piece has an angle, rotate it before drawing
+                    img_to_draw = rotate_image(img_to_draw, obj['angle'])
+                overlay_transparent(image_p1, img_to_draw, int(obj['x'] * half_width), int(obj['y'] * height))
+
         for p in self.p1_particles: cv2.circle(image_p1, (int(p['x'] * half_width), int(p['y'] * height)), p['radius'], p['color'], -1)
         if self.pose_data['p1']: self.mp_drawing.draw_landmarks(image_p1, self.pose_data['p1'].pose_landmarks, self.mp_pose.POSE_CONNECTIONS)
             
-        for obj in self.p2_fruits: overlay_transparent(image_p2, obj['images']['whole'], int(obj['x'] * half_width), int(obj['y'] * height))
-        for obj in self.p2_bombs: overlay_transparent(image_p2, obj['image'], int(obj['x'] * half_width), int(obj['y'] * height))
-        for piece in self.p2_sliced_pieces: overlay_transparent(image_p2, piece['image'], int(piece['x'] * half_width), int(piece['y'] * height))
+        # Drawing loop for p2_sliced_pieces needs to handle rotation
+        for obj_list in [self.p2_fruits, self.p2_bombs, self.p2_sliced_pieces]:
+            for obj in obj_list:
+                img_to_draw = obj['image'] if 'image' in obj else obj['images']['whole']
+                if 'angle' in obj: # If piece has an angle, rotate it before drawing
+                    img_to_draw = rotate_image(img_to_draw, obj['angle'])
+                overlay_transparent(image_p2, img_to_draw, int(obj['x'] * half_width), int(obj['y'] * height))
+
         for p in self.p2_particles: cv2.circle(image_p2, (int(p['x'] * half_width), int(p['y'] * height)), p['radius'], p['color'], -1)
         if self.pose_data['p2']: self.mp_drawing.draw_landmarks(image_p2, self.pose_data['p2'].pose_landmarks, self.mp_pose.POSE_CONNECTIONS)
 
         frame[:, :half_width] = image_p1
         frame[:, half_width:] = image_p2
         
-        ## MODIFIED: Added the UI and score drawing code back in.
         cv2.line(frame, (half_width, 0), (half_width, height), (255, 255, 255), 2)
         cv2.rectangle(frame, (0, 0), (width, 150), (20, 20, 20), -1)
 
