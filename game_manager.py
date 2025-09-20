@@ -1,6 +1,7 @@
 # game_manager.py
 
 import cv2
+import numpy as np
 
 from main_menu import MainMenu
 from boxing_game import BoxingGame
@@ -42,12 +43,11 @@ class GameManager:
             else:
                 # Handle game input
                 pose_data = self.input_module.process_pose(frame)
-                self.current_game.update(pose_data, 0)  # dt handled internally
-                
+                self.current_game.update(pose_data, 0) # dt handled internally
+   
                 # Handle key for games if method exists
                 if hasattr(self.current_game, 'handle_key'):
                     self.current_game.handle_key(key)
-                
                 frame = self.current_game.render(frame if frame is not None else np.zeros((1080, 1920, 3), dtype=np.uint8))
                 
                 if key == ord('q'):
