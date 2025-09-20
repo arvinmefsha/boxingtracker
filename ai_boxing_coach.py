@@ -40,13 +40,18 @@ class FighterState:
         self.prev_right_wrist = None
         self.prev_shoulder_wrist_dist = 0
         
+        # --- MODIFICATION ---
+        # Added state tracking for the left leg
+        
         # Right Leg
         self.right_leg_state = 'IDLE' 
         self.right_kick_count = 0
-        self.prev_right_ankle = None
-        self.prev_right_knee = None
+        
+        # Left Leg
+        self.left_leg_state = 'IDLE'
+        self.left_kick_count = 0
 
-# Functions for detection
+
 # --- New, Modular Detection Functions ---
 
 def detect_punch(state: FighterState,
@@ -96,35 +101,45 @@ def detect_punch(state: FighterState,
     return did_punch, debug
 
 
+# --- FIX: Generalized detect_kick function ---
 def detect_kick(state: FighterState,
-                right_hip, right_ankle,
+                hip, ankle,
+                side: str, # 'left' or 'right'
                 idle_buffer=0.05):
     """
-    Kick detection:
+    Kick detection for a specified leg ('left' or 'right').
     - Counts a kick when the ankle goes above the hip.
     - Prevents jitter by requiring the ankle to go clearly *below* the hip + buffer before resetting to IDLE.
     """
     debug = {}
     did_kick = False
 
-    hip_y = right_hip.y
-    ankle_y = right_ankle.y
+    hip_y = hip.y
+    ankle_y = ankle.y
 
-    # Kick start condition
-    if ankle_y < hip_y:  # foot above hip
-        if state.right_leg_state == 'IDLE':
-            state.right_kick_count += 1
+    # Dynamically get attributes based on the 'side' argument
+    leg_state_attr = f'{side}_leg_state'
+    kick_count_attr = f'{side}_kick_count'
+    
+    current_leg_state = getattr(state, leg_state_attr)
+
+    # Kick start condition: ankle is above hip
+    if ankle_y < hip_y:
+        if current_leg_state == 'IDLE':
+            # Increment the correct kick counter
+            setattr(state, kick_count_attr, getattr(state, kick_count_attr) + 1)
             did_kick = True
-            state.right_leg_state = 'KICKING'
+            # Set the correct leg state to 'KICKING'
+            setattr(state, leg_state_attr, 'KICKING')
 
-    # Kick end condition with buffer to prevent flicker
+    # Kick end condition with buffer to prevent flicker: ankle is clearly below hip
     elif ankle_y > hip_y + idle_buffer:  
-        state.right_leg_state = 'IDLE'
-
+        setattr(state, leg_state_attr, 'IDLE')
+    
     debug.update({
-        "hip_y": hip_y,
-        "ankle_y": ankle_y,
-        "leg_state": state.right_leg_state
+        f"{side}_hip_y": hip_y,
+        f"{side}_ankle_y": ankle_y,
+        f"{side}_leg_state": getattr(state, leg_state_attr)
     })
 
     return did_kick, debug
@@ -150,25 +165,20 @@ prev_time = time.time()
 
 while cap.isOpened():
     success, image = cap.read()
-    # --- ROBUSTNESS FIX ---
-    # If frame is not read successfully or is empty, skip to next iteration
     if not success or image is None:
         print("Ignoring empty camera frame.")
         continue
 
     image = cv2.flip(image, 1)
     
-    # Ensure the image has width before proceeding
     if image.shape[1] == 0:
         print("Warning: Frame has zero width.")
         continue
 
     height, width, _ = image.shape
-
     image_p1 = image[:, :width//2]
     image_p2 = image[:, width//2:]
 
-    # --- FIX: Corrected typo from COLOR_BGR_RGB to COLOR_BGR2RGB ---
     image_rgb_p1 = cv2.cvtColor(image_p1, cv2.COLOR_BGR2RGB)
     image_rgb_p2 = cv2.cvtColor(image_p2, cv2.COLOR_BGR2RGB)
     
@@ -178,7 +188,6 @@ while cap.isOpened():
     current_time = time.time()
     dt = current_time - prev_time
     
-    # Make sure dt is not zero to avoid division errors
     if dt == 0:
         continue
 
@@ -187,18 +196,24 @@ while cap.isOpened():
         if not landmarks:
             return
 
+        # Right Side Landmarks
         RS = landmarks[mp_pose.PoseLandmark.RIGHT_SHOULDER.value]
-        RE = landmarks[mp_pose.PoseLandmark.RIGHT_ELBOW.value]   # (kept if you want to add elbow checks later)
         RW = landmarks[mp_pose.PoseLandmark.RIGHT_WRIST.value]
         RH = landmarks[mp_pose.PoseLandmark.RIGHT_HIP.value]
-        RK = landmarks[mp_pose.PoseLandmark.RIGHT_KNEE.value]
         RA = landmarks[mp_pose.PoseLandmark.RIGHT_ANKLE.value]
 
-        # 1) Punch
+        # --- MODIFICATION: Get left side landmarks for kick detection ---
+        LH = landmarks[mp_pose.PoseLandmark.LEFT_HIP.value]
+        LA = landmarks[mp_pose.PoseLandmark.LEFT_ANKLE.value]
+
+
+        # 1) Punch (remains right-hand only as per original logic)
         _punch, punch_dbg = detect_punch(state, RW, RS, dt)
 
-        # 2) Kick
-        _kick, kick_dbg = detect_kick(state, RH, RK, RA, dt)
+        # 2) Kick (now detects both legs)
+        # --- FIX: Calling the new generalized function for both legs ---
+        _right_kick, right_kick_dbg = detect_kick(state, RH, RA, 'right')
+        _left_kick, left_kick_dbg = detect_kick(state, LH, LA, 'left')
 
 
     # --- Apply logic to both players ---
@@ -218,45 +233,46 @@ while cap.isOpened():
 
     prev_time = current_time
 
-    # --- Display Dashboard (FIXED LINE) ---
+    # --- Display Dashboard ---
     image[:, :width//2] = image_p1
     image[:, width//2:] = image_p2
     
-    # Draw the black dashboard box FIRST
     cv2.rectangle(image, (0, 0), (width, 110), (20, 20, 20), -1)
-    
-    # Draw the white dividing line SECOND, so it appears on top of the box
     cv2.line(image, (width//2, 0), (width//2, height), (255, 255, 255), 2)
     
     margin = 15
 
-    # --- Player 1 Info (Left Panel) ---
-    # Title and Counters are left-aligned to the screen edge
+    # --- MODIFICATION: Update UI to show total kicks and a combined leg state ---
+    
+    # Player 1 Info (Left Panel)
+    total_kicks_p1 = p1_state.right_kick_count + p1_state.left_kick_count
+    p1_leg_status = 'KICKING' if p1_state.right_leg_state == 'KICKING' or p1_state.left_leg_state == 'KICKING' else 'IDLE'
+
     cv2.putText(image, 'FIGHTER 1 (BLUE)', (margin, 25), cv2.FONT_HERSHEY_SIMPLEX, 0.7, (255, 150, 150), 2)
     cv2.putText(image, f'PUNCHES: {p1_state.right_punch_count}', (margin, 60), cv2.FONT_HERSHEY_SIMPLEX, 0.9, (255, 255, 255), 2)
-    cv2.putText(image, f'KICKS: {p1_state.right_kick_count}', (margin, 95), cv2.FONT_HERSHEY_SIMPLEX, 0.9, (255, 255, 255), 2)
+    cv2.putText(image, f'KICKS: {total_kicks_p1}', (margin, 95), cv2.FONT_HERSHEY_SIMPLEX, 0.9, (255, 255, 255), 2)
 
-    # States are right-aligned to the center divider
     p1_arm_text = f'ARM: {p1_state.right_hand_state}'
-    p1_leg_text = f'LEG: {p1_state.right_leg_state}'
+    p1_leg_text = f'LEG: {p1_leg_status}'
     p1_arm_text_size = cv2.getTextSize(p1_arm_text, cv2.FONT_HERSHEY_SIMPLEX, 0.9, 2)[0]
     p1_leg_text_size = cv2.getTextSize(p1_leg_text, cv2.FONT_HERSHEY_SIMPLEX, 0.9, 2)[0]
     
     cv2.putText(image, p1_arm_text, (width//2 - p1_arm_text_size[0] - margin, 60), cv2.FONT_HERSHEY_SIMPLEX, 0.9, (255, 255, 255), 2)
     cv2.putText(image, p1_leg_text, (width//2 - p1_leg_text_size[0] - margin, 95), cv2.FONT_HERSHEY_SIMPLEX, 0.9, (255, 255, 255), 2)
 
-    # --- Player 2 Info (Right Panel) ---
-    # States are left-aligned to the center divider
+    # Player 2 Info (Right Panel)
+    total_kicks_p2 = p2_state.right_kick_count + p2_state.left_kick_count
+    p2_leg_status = 'KICKING' if p2_state.right_leg_state == 'KICKING' or p2_state.left_leg_state == 'KICKING' else 'IDLE'
+
     cv2.putText(image, f'ARM: {p2_state.right_hand_state}', (width//2 + margin, 60), cv2.FONT_HERSHEY_SIMPLEX, 0.9, (255, 255, 255), 2)
-    cv2.putText(image, f'LEG: {p2_state.right_leg_state}', (width//2 + margin, 95), cv2.FONT_HERSHEY_SIMPLEX, 0.9, (255, 255, 255), 2)
+    cv2.putText(image, f'LEG: {p2_leg_status}', (width//2 + margin, 95), cv2.FONT_HERSHEY_SIMPLEX, 0.9, (255, 255, 255), 2)
     
-    # Title and Counters are right-aligned to the screen edge
     p2_title = 'FIGHTER 2 (RED)'
     p2_title_size = cv2.getTextSize(p2_title, cv2.FONT_HERSHEY_SIMPLEX, 0.7, 2)[0]
     cv2.putText(image, p2_title, (width - p2_title_size[0] - margin, 25), cv2.FONT_HERSHEY_SIMPLEX, 0.7, (150, 150, 255), 2)
 
     p2_punch_text = f'PUNCHES: {p2_state.right_punch_count}'
-    p2_kick_text = f'KICKS: {p2_state.right_kick_count}'
+    p2_kick_text = f'KICKS: {total_kicks_p2}'
     p2_punch_text_size = cv2.getTextSize(p2_punch_text, cv2.FONT_HERSHEY_SIMPLEX, 0.9, 2)[0]
     p2_kick_text_size = cv2.getTextSize(p2_kick_text, cv2.FONT_HERSHEY_SIMPLEX, 0.9, 2)[0]
     
