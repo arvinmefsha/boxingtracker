@@ -30,6 +30,7 @@ def calculate_velocity(p1, p2, dt):
     distance = calculate_distance(p1, p2)
     return distance / dt
 
+
 # --- Fighter State Class ---
 class FighterState:
     def __init__(self):
@@ -45,6 +46,135 @@ class FighterState:
         self.right_knee_count = 0
         self.prev_right_ankle = None
         self.prev_right_knee = None
+
+# Functions for detection
+# --- New, Modular Detection Functions ---
+
+# --- New, Modular Detection Functions ---
+
+def detect_punch(state: FighterState,
+                 right_wrist, right_shoulder,
+                 dt,
+                 v_start=1.10, v_end=0.30, retract_dist=0.20):
+    """
+    Detects a right-hand straight punch based on wrist velocity and
+    shoulder–wrist extension/retraction.
+    Returns: (did_punch: bool, debug: dict)
+    """
+    debug = {}
+    did_punch = False
+
+    wrist_xy = [right_wrist.x, right_wrist.y]
+    shoulder_xy = [right_shoulder.x, right_shoulder.y]
+
+    if state.prev_right_wrist is not None:
+        v = calculate_velocity(wrist_xy, state.prev_right_wrist, dt)
+        d = calculate_distance(shoulder_xy, wrist_xy)
+        is_extending = d > state.prev_shoulder_wrist_dist
+
+        debug.update({"wrist_v": v, "shoulder_wrist_d": d, "is_extending": is_extending, "arm_state": state.right_hand_state})
+
+        if state.right_hand_state == 'IDLE' and v > v_start and is_extending:
+            state.right_hand_state = 'PUNCHING'
+
+        elif state.right_hand_state == 'PUNCHING':
+            # count at peak/slowdown (extension completed)
+            if v < v_end:
+                state.right_punch_count += 1
+                did_punch = True
+                state.right_hand_state = 'RETRACTING'
+
+        elif state.right_hand_state == 'RETRACTING':
+            # back near shoulder or clearly reducing extension
+            if d < state.prev_shoulder_wrist_dist or d < retract_dist:
+                state.right_hand_state = 'IDLE'
+
+        state.prev_shoulder_wrist_dist = d
+
+    # book-keeping
+    state.prev_right_wrist = wrist_xy
+    if state.prev_shoulder_wrist_dist == 0:
+        state.prev_shoulder_wrist_dist = calculate_distance(shoulder_xy, wrist_xy)
+
+    return did_punch, debug
+
+
+def detect_knee(state: FighterState,
+                right_hip, right_knee,
+                dt,
+                knee_up_v=0.80, max_bent_angle=100):
+    """
+    Detects a right knee strike (up-the-middle) using knee vertical velocity,
+    knee height vs hip, and leg bend angle.
+    Returns: (did_knee: bool, debug: dict)
+    """
+    debug = {}
+    did_knee = False
+
+    hip_xy = [right_hip.x, right_hip.y]
+    knee_xy = [right_knee.x, right_knee.y]
+
+    if state.prev_right_knee is not None:
+        # positive when moving up in image coords where y decreases upwards
+        knee_vertical_v = (state.prev_right_knee[1] - knee_xy[1]) / dt
+        is_knee_raised = knee_xy[1] < hip_xy[1]  # knee above hip line
+
+        debug.update({"knee_vy_up": knee_vertical_v, "knee_above_hip": is_knee_raised, "leg_state": state.right_leg_state})
+
+        # start knee
+        if state.right_leg_state == 'IDLE' and knee_vertical_v > knee_up_v and is_knee_raised:
+            state.right_leg_state = 'KNEEING'
+
+        # finish knee when it starts going down
+        elif state.right_leg_state == 'KNEEING' and knee_vertical_v < 0:
+            state.right_knee_count += 1
+            did_knee = True
+            state.right_leg_state = 'IDLE'
+
+    # book-keeping
+    state.prev_right_knee = knee_xy
+    return did_knee, debug
+
+
+def detect_kick(state: FighterState,
+                right_hip, right_knee, right_ankle,
+                dt,
+                ankle_v_start=1.50, ankle_v_idle=0.50, min_extension_angle=160):
+    """
+    Detects a right-leg kick using ankle velocity and knee extension angle.
+    Returns: (did_kick: bool, debug: dict)
+    """
+    debug = {}
+    did_kick = False
+
+    hip_xy   = [right_hip.x, right_hip.y]
+    knee_xy  = [right_knee.x, right_knee.y]
+    ankle_xy = [right_ankle.x, right_ankle.y]
+
+    if state.prev_right_ankle is not None and state.prev_right_knee is not None:
+        ankle_v = calculate_velocity(ankle_xy, state.prev_right_ankle, dt)
+        leg_angle = calculate_angle(hip_xy, knee_xy, ankle_xy)  # 180° = fully extended
+
+        debug.update({"ankle_v": ankle_v, "leg_angle": leg_angle, "leg_state": state.right_leg_state})
+
+        if state.right_leg_state == 'IDLE' and ankle_v > ankle_v_start:
+            state.right_leg_state = 'KICKING'
+
+        elif state.right_leg_state == 'KICKING':
+            # count when extended and slows down (impact/peak)
+            if leg_angle > min_extension_angle and ankle_v < ankle_v_idle:
+                state.right_kick_count += 1
+                did_kick = True
+                state.right_leg_state = 'IDLE'
+            # timeout/abort if it slows without extension
+            elif ankle_v < ankle_v_idle:
+                state.right_leg_state = 'IDLE'
+
+    # book-keeping
+    state.prev_right_ankle = ankle_xy
+    state.prev_right_knee  = knee_xy
+    return did_kick, debug
+
 
 # --- Initialization ---
 
@@ -103,75 +233,24 @@ while cap.isOpened():
         if not landmarks:
             return
 
-        # Landmark definitions
-        RIGHT_SHOULDER = landmarks[mp_pose.PoseLandmark.RIGHT_SHOULDER.value]
-        RIGHT_ELBOW = landmarks[mp_pose.PoseLandmark.RIGHT_ELBOW.value]
-        RIGHT_WRIST = landmarks[mp_pose.PoseLandmark.RIGHT_WRIST.value]
-        RIGHT_HIP = landmarks[mp_pose.PoseLandmark.RIGHT_HIP.value]
-        RIGHT_KNEE = landmarks[mp_pose.PoseLandmark.RIGHT_KNEE.value]
-        RIGHT_ANKLE = landmarks[mp_pose.PoseLandmark.RIGHT_ANKLE.value]
-        
-        # Get coordinates
-        right_wrist_coords = [RIGHT_WRIST.x, RIGHT_WRIST.y]
-        right_shoulder_coords = [RIGHT_SHOULDER.x, RIGHT_SHOULDER.y]
-        right_elbow_coords = [RIGHT_ELBOW.x, RIGHT_ELBOW.y]
-        right_ankle_coords = [RIGHT_ANKLE.x, RIGHT_ANKLE.y]
-        right_knee_coords = [RIGHT_KNEE.x, RIGHT_KNEE.y]
-        right_hip_coords = [RIGHT_HIP.x, RIGHT_HIP.y]
+        RS = landmarks[mp_pose.PoseLandmark.RIGHT_SHOULDER.value]
+        RE = landmarks[mp_pose.PoseLandmark.RIGHT_ELBOW.value]   # (kept if you want to add elbow checks later)
+        RW = landmarks[mp_pose.PoseLandmark.RIGHT_WRIST.value]
+        RH = landmarks[mp_pose.PoseLandmark.RIGHT_HIP.value]
+        RK = landmarks[mp_pose.PoseLandmark.RIGHT_KNEE.value]
+        RA = landmarks[mp_pose.PoseLandmark.RIGHT_ANKLE.value]
 
-        # --- REFINED PUNCH DETECTION ---
-        if state.prev_right_wrist:
-            velocity = calculate_velocity(right_wrist_coords, state.prev_right_wrist, dt)
-            shoulder_wrist_dist = calculate_distance(right_shoulder_coords, right_wrist_coords)
-            
-            # Condition to start punch: high velocity AND hand moving away from shoulder
-            is_extending = shoulder_wrist_dist > state.prev_shoulder_wrist_dist
-            
-            if state.right_hand_state == 'IDLE' and velocity > 1.1 and is_extending:
-                state.right_hand_state = 'PUNCHING'
-            elif state.right_hand_state == 'PUNCHING':
-                # Condition to end punch: velocity drops
-                if velocity < 0.3:
-                    state.right_punch_count += 1
-                    state.right_hand_state = 'RETRACTING'
-            elif state.right_hand_state == 'RETRACTING':
-                # Condition to return to idle: hand is back near shoulder
-                if shoulder_wrist_dist < state.prev_shoulder_wrist_dist or shoulder_wrist_dist < 0.2:
-                    state.right_hand_state = 'IDLE'
+        # 1) Punch
+        _punch, punch_dbg = detect_punch(state, RW, RS, dt)
 
-        state.prev_right_wrist = right_wrist_coords
-        state.prev_shoulder_wrist_dist = calculate_distance(right_shoulder_coords, right_wrist_coords)
+        # 2) Knee (prioritize knee over kick to avoid double counting)
+        _knee, knee_dbg = detect_knee(state, RH, RK, dt)
 
-        # --- REFINED KICK AND KNEE DETECTION ---
-        if state.prev_right_ankle and state.prev_right_knee:
-            ankle_velocity = calculate_velocity(right_ankle_coords, state.prev_right_ankle, dt)
-            knee_vertical_velocity = (state.prev_right_knee[1] - right_knee_coords[1]) / dt
-            leg_angle = calculate_angle(right_hip_coords, right_knee_coords, right_ankle_coords)
-
-            # KNEE LOGIC: high upward knee velocity AND a bent leg
-            is_knee_raised = right_knee_coords[1] < right_hip_coords[1]
-            if state.right_leg_state == 'IDLE' and knee_vertical_velocity > 0.8 and is_knee_raised and leg_angle < 100:
-                 state.right_leg_state = 'KNEEING'
-            elif state.right_leg_state == 'KNEEING':
-                # End knee when knee starts moving down
-                if knee_vertical_velocity < 0:
-                    state.right_knee_count += 1
-                    state.right_leg_state = 'IDLE'
-
-            # KICK LOGIC: high ankle velocity, then extension, then retraction
-            if state.right_leg_state == 'IDLE' and ankle_velocity > 1.5:
-                state.right_leg_state = 'KICKING'
-            elif state.right_leg_state == 'KICKING':
-                # Only count the kick if the leg extends and then velocity drops
-                if leg_angle > 160 and ankle_velocity < 0.5:
-                    state.right_kick_count += 1
-                    state.right_leg_state = 'IDLE'
-                # Timeout if kick is not completed
-                elif ankle_velocity < 0.5:
-                    state.right_leg_state = 'IDLE'
-
-        state.prev_right_ankle = right_ankle_coords
-        state.prev_right_knee = right_knee_coords
+        # 3) Kick (only if not currently kneeing)
+        if state.right_leg_state != 'KNEEING':
+            _kick, kick_dbg = detect_kick(state, RH, RK, RA, dt)
+        else:
+            _kick, kick_dbg = (False, {"skipped": "currently kneeing"})
 
     # --- Apply logic to both players ---
     if results_p1.pose_landmarks:
