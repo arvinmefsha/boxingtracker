@@ -97,42 +97,36 @@ def detect_punch(state: FighterState,
 
 
 def detect_kick(state: FighterState,
-                right_hip, right_knee, right_ankle,
-                dt,
-                ankle_v_start=1.50, ankle_v_idle=0.50, min_extension_angle=160):
+                right_hip, right_ankle,
+                idle_buffer=0.05):
     """
-    Detects a right-leg kick using ankle velocity and knee extension angle.
-    Returns: (did_kick: bool, debug: dict)
+    Kick detection:
+    - Counts a kick when the ankle goes above the hip.
+    - Prevents jitter by requiring the ankle to go clearly *below* the hip + buffer before resetting to IDLE.
     """
     debug = {}
     did_kick = False
 
-    hip_xy   = [right_hip.x, right_hip.y]
-    knee_xy  = [right_knee.x, right_knee.y]
-    ankle_xy = [right_ankle.x, right_ankle.y]
+    hip_y = right_hip.y
+    ankle_y = right_ankle.y
 
-    if state.prev_right_ankle is not None and state.prev_right_knee is not None:
-        ankle_v = calculate_velocity(ankle_xy, state.prev_right_ankle, dt)
-        leg_angle = calculate_angle(hip_xy, knee_xy, ankle_xy)  # 180° = fully extended
-
-        debug.update({"ankle_v": ankle_v, "leg_angle": leg_angle, "leg_state": state.right_leg_state})
-
-        if state.right_leg_state == 'IDLE' and ankle_v > ankle_v_start:
+    # Kick start condition
+    if ankle_y < hip_y:  # foot above hip
+        if state.right_leg_state == 'IDLE':
+            state.right_kick_count += 1
+            did_kick = True
             state.right_leg_state = 'KICKING'
 
-        elif state.right_leg_state == 'KICKING':
-            # count when extended and slows down (impact/peak)
-            if leg_angle > min_extension_angle and ankle_v < ankle_v_idle:
-                state.right_kick_count += 1
-                did_kick = True
-                state.right_leg_state = 'IDLE'
-            # timeout/abort if it slows without extension
-            elif ankle_v < ankle_v_idle:
-                state.right_leg_state = 'IDLE'
+    # Kick end condition with buffer to prevent flicker
+    elif ankle_y > hip_y + idle_buffer:  
+        state.right_leg_state = 'IDLE'
 
-    # book-keeping
-    state.prev_right_ankle = ankle_xy
-    state.prev_right_knee  = knee_xy
+    debug.update({
+        "hip_y": hip_y,
+        "ankle_y": ankle_y,
+        "leg_state": state.right_leg_state
+    })
+
     return did_kick, debug
 
 
