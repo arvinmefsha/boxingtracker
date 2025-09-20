@@ -13,29 +13,26 @@ class BoxingGame(Game):
         self.mp_drawing = mp.solutions.drawing_utils
         self.pose = self.mp_pose.Pose(min_detection_confidence=0.5, min_tracking_confidence=0.5)
         self.pose_data = {'p1': None, 'p2': None}  # Store pose data
-        
+
         self.p1_state = FighterState()
         self.p2_state = FighterState()
-        
-        # Hearts & energy (live variables reflected on HUD)
-        self.p1_hearts = 10
-        self.p2_hearts = 10
-        self.p1_energy = 10
-        self.p2_energy = 10
+
+        # Hearts (live variables reflected on HUD)
+        self.p1_hearts = 12
+        self.p2_hearts = 12
 
         self.prev_time = time.time()
-
-        # Energy regen timers
-        self.p1_last_regen = time.time()
-        self.p2_last_regen = time.time()
 
         # Combat state
         # pending_attack[player] = {"type": "kick"/"punch", "time": ts, "defender": "p1"/"p2"}
         self.pending_attack = {'p1': None, 'p2': None}
-        # stun_until[player] = epoch seconds (player cannot attack until then)
+        # stun_until[player] = epoch seconds (player cannot act until then)
         self.stun_until = {'p1': 0.0, 'p2': 0.0}
         # who stunned this player (for early-stun-end on counterattack)
         self.last_stunned_by = {'p1': None, 'p2': None}
+        # global cross-attack cooldown (any attack -> 1.5s lockout)
+        self.last_attack_time = {'p1': 0.0, 'p2': 0.0}
+        self.global_cooldown_s = 1.0
 
         self.game_over = False
 
@@ -43,24 +40,19 @@ class BoxingGame(Game):
         """Reset game state for a new session."""
         self.p1_state = FighterState()
         self.p2_state = FighterState()
-        
+
         self.prev_time = time.time()
         self.pose_data = {'p1': None, 'p2': None}
 
-        # Reset hearts & energy
-        self.p1_hearts = 10
-        self.p2_hearts = 10
-        self.p1_energy = 10
-        self.p2_energy = 10
-
-        # Reset timers
-        self.p1_last_regen = time.time()
-        self.p2_last_regen = time.time()
+        # Reset hearts
+        self.p1_hearts = 15
+        self.p2_hearts = 15
 
         # Reset combat state
         self.pending_attack = {'p1': None, 'p2': None}
         self.stun_until = {'p1': 0.0, 'p2': 0.0}
         self.last_stunned_by = {'p1': None, 'p2': None}
+        self.last_attack_time = {'p1': 0.0, 'p2': 0.0}
         self.game_over = False
 
     # --------- helpers to ensure dynamic fields exist (backward compatible) ---------
@@ -97,17 +89,11 @@ class BoxingGame(Game):
     def _can_act(self, who: str) -> bool:
         return time.time() >= self.stun_until[who]
 
-    def _spend_energy(self, who: str, amount: int) -> bool:
-        if who == 'p1':
-            if self.p1_energy >= amount:
-                self.p1_energy -= amount
-                return True
-            return False
-        else:
-            if self.p2_energy >= amount:
-                self.p2_energy -= amount
-                return True
-            return False
+    def _on_cooldown(self, who: str) -> bool:
+        return (time.time() - self.last_attack_time[who]) < self.global_cooldown_s
+
+    def _mark_attack_time(self, who: str):
+        self.last_attack_time[who] = time.time()
 
     def _start_attack(self, attacker: str, attack_type: str):
         """Register a new pending attack; damage resolves in up to 2s window unless weaved."""
@@ -118,6 +104,7 @@ class BoxingGame(Game):
             'time': now,
             'defender': defender
         }
+        self._mark_attack_time(attacker)
 
     def _resolve_expired_attacks(self):
         """Apply damage for any attack whose 2s weave window expired without a qualifying weave."""
@@ -128,7 +115,8 @@ class BoxingGame(Game):
                 continue
             if now - pa['time'] >= 2.0:
                 defender = pa['defender']
-                dmg = 4 if pa['type'] == 'kick' else 3
+                # UPDATED DAMAGE: kick=3, punch=1
+                dmg = 3 if pa['type'] == 'kick' else 1
                 if defender == 'p1':
                     self.p1_hearts = max(0, self.p1_hearts - dmg)
                 else:
@@ -149,7 +137,7 @@ class BoxingGame(Game):
         opponent = self._other(weaver)
         pa = self.pending_attack[opponent]
         if pa is None:
-            return  # weaving without an incoming attack has no special effect (still costs energy)
+            return  # weaving without an incoming attack has no special effect
         dt = time.time() - pa['time']
         if dt < 1.0:
             # Perfect weave: stun the attacker for 1s, cancel attack
@@ -181,7 +169,7 @@ class BoxingGame(Game):
           1) Arm extension: angle(shoulder–elbow–wrist) > angle_threshold (default 150°)
           2) Both hands above waist: wrist.y < waist_y and other_wrist.y < waist_y
           3) Shoulder openness: angle(hip–shoulder–elbow) >= shoulder_min_angle (default 45°)
-          4) Per-arm cooldown passed (default 0.25 s)
+          4) Per-arm detection cooldown passed (default 0.25 s) to reduce jitter
         Uses a simple two-state machine per arm: IDLE -> PUNCHING -> IDLE.
         Returns: (did_punch: bool, debug: dict)
         """
@@ -348,35 +336,28 @@ class BoxingGame(Game):
         # Waist line: midpoint of both hips
         waist_y = (LH.y + RH.y) / 2.0
 
-        # ----- Attacks (blocked if stunned or insufficient energy) -----
-        # Punch attempts
+        # ----- Attacks (blocked if stunned or on global cooldown) -----
         did_r_punch, _ = self.detect_punch(state, RS, RE, RW, LW, RH, waist_y, 'right')
         did_l_punch, _ = self.detect_punch(state, LS, LE, LW, RW, LH, waist_y, 'left')
         did_any_punch = did_r_punch or did_l_punch
 
-        if did_any_punch and self._can_act(who):
-            # Spend 5 energy to actually throw punch
-            if self._spend_energy(who, 5):
-                self._start_attack(who, 'punch')
-                # If this is a counterattack from a recent perfect weave, end opponent stun early
-                self._try_end_stun_early_on_counter(who)
+        if did_any_punch and self._can_act(who) and not self._on_cooldown(who):
+            self._start_attack(who, 'punch')
+            # If this is a counterattack from a recent perfect weave, end opponent stun early
+            self._try_end_stun_early_on_counter(who)
 
-        # Kick attempts
         did_r_kick, _ = self.detect_kick(state, RH, RA, 'right')
         did_l_kick, _ = self.detect_kick(state, LH, LA, 'left')
         did_any_kick = did_r_kick or did_l_kick
 
-        if did_any_kick and self._can_act(who):
-            if self._spend_energy(who, 2):
-                self._start_attack(who, 'kick')
-                self._try_end_stun_early_on_counter(who)
+        if did_any_kick and self._can_act(who) and not self._on_cooldown(who):
+            self._start_attack(who, 'kick')
+            self._try_end_stun_early_on_counter(who)
 
-        # ----- Weave (only if has energy and not stunned) -----
+        # ----- Weave (no energy cost; only blocked by stun) -----
         did_weave, _ = self.detect_weave(state, LH, LS, RH, RS)
         if did_weave and self._can_act(who):
-            # Spend 3 energy to weave; only then apply the weave effects
-            if self._spend_energy(who, 3):
-                self._handle_weave_event(who)
+            self._handle_weave_event(who)
 
     # --------- engine integration ---------
     def handle_input(self, pose_data):
@@ -384,10 +365,10 @@ class BoxingGame(Game):
         self.pose_data = pose_data  # Store pose data for rendering
         current_time = time.time()
         dt = current_time - self.prev_time
-        
+
         if dt == 0:
             return
-        
+
         self.prev_time = current_time
 
         # Process Player 1
@@ -399,20 +380,11 @@ class BoxingGame(Game):
             self.process_fighter('p2', pose_data['p2'].pose_landmarks.landmark, self.p2_state, dt)
 
     def update(self, pose_data, dt):
-        """Update game state (input, energy regen, attack resolution, end-state)."""
+        """Update game state (input, attack resolution, end-state)."""
         if self.game_over:
             return
 
         self.handle_input(pose_data)
-
-        # --- Energy regeneration every 3s ---
-        now = time.time()
-        if self.p1_energy < 10 and (now - self.p1_last_regen) >= 3.0:
-            self.p1_energy = min(10, self.p1_energy + 1)
-            self.p1_last_regen = now
-        if self.p2_energy < 10 and (now - self.p2_last_regen) >= 3.0:
-            self.p2_energy = min(10, self.p2_energy + 1)
-            self.p2_last_regen = now
 
         # --- Resolve any attacks whose weave windows expired ---
         self._resolve_expired_attacks()
@@ -450,7 +422,7 @@ class BoxingGame(Game):
         sy = height / 1080.0
         s = min(sx, sy)
 
-        dashboard_h = max(100, int(220 * sy))
+        dashboard_h = max(100, int(190 * sy))
 
         margin = max(8, int(15 * sx))
         title_font_scale = 0.7 * s
@@ -464,7 +436,6 @@ class BoxingGame(Game):
         y_line2 = int(95 * sy)
         y_line3 = int(130 * sy)
         y_line4 = int(165 * sy)
-        y_line5 = int(200 * sy)
 
         # HUD background
         cv2.rectangle(frame, (0, 0), (width, dashboard_h), (20, 20, 20), -1)
@@ -482,7 +453,6 @@ class BoxingGame(Game):
         cv2.putText(frame, f'KICKS: {p1_total_kicks}', (margin, y_line2), font, value_font_scale, (255, 255, 255), thick)
         cv2.putText(frame, f'WEAVES: {p1_weaves}', (margin, y_line3), font, value_font_scale, (255, 255, 255), thick)
         cv2.putText(frame, f'HEARTS: {self.p1_hearts}', (margin, y_line4), font, value_font_scale, (255, 100, 100), thick)
-        cv2.putText(frame, f'ENERGY: {self.p1_energy}', (margin, y_line5), font, value_font_scale, (100, 255, 100), thick)
 
         # Player 1 states
         p1_arm_combined = 'PUNCHING' if (
@@ -527,13 +497,11 @@ class BoxingGame(Game):
         p2_kick_text  = f'KICKS: {p2_total_kicks}'
         p2_weave_text = f'WEAVES: {p2_weaves}'
         p2_hearts_text = f'HEARTS: {self.p2_hearts}'
-        p2_energy_text = f'ENERGY: {self.p2_energy}'
 
         p2_punch_sz = cv2.getTextSize(p2_punch_text, font, value_font_scale, thick)[0]
         p2_kick_sz  = cv2.getTextSize(p2_kick_text,  font, value_font_scale, thick)[0]
         p2_weave_sz = cv2.getTextSize(p2_weave_text,  font, value_font_scale, thick)[0]
         p2_hearts_sz = cv2.getTextSize(p2_hearts_text, font, value_font_scale, thick)[0]
-        p2_energy_sz = cv2.getTextSize(p2_energy_text, font, value_font_scale, thick)[0]
 
         cv2.putText(frame, p2_punch_text, (width - p2_punch_sz[0] - margin, y_line1),
                     font, value_font_scale, (255, 255, 255), thick)
@@ -543,8 +511,6 @@ class BoxingGame(Game):
                     font, value_font_scale, (255, 255, 255), thick)
         cv2.putText(frame, p2_hearts_text, (width - p2_hearts_sz[0] - margin, y_line4),
                     font, value_font_scale, (255, 100, 100), thick)
-        cv2.putText(frame, p2_energy_text, (width - p2_energy_sz[0] - margin, y_line5),
-                    font, value_font_scale, (100, 255, 100), thick)
 
         # Optional: overlay game over text
         if self.game_over:
