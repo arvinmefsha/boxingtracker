@@ -38,7 +38,7 @@ class GameManager:
             else:
                 # Handle game input
                 pose_data = self.input_module.process_pose(frame)
-                self.current_game.update(pose_data, 0)  # dt handled internally
+                self.current_game.update(pose_data)  # dt handled internally
                 frame = self.current_game.render(frame if frame is not None else np.zeros((1080, 1920, 3), dtype=np.uint8))
                 
                 if key == ord('q'):
