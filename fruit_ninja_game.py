@@ -9,6 +9,7 @@ import os
 import sys
 
 import pygame
+from collections import deque
 
 from game import Game
 from helpers import calculate_velocity, line_circle_intersection
@@ -134,12 +135,19 @@ class FruitNinjaGame(Game):
         self.p1_score, self.p2_score = 0, 0
         self.p1_fruits, self.p2_fruits = [], []
         self.p1_bombs, self.p2_bombs = [], []
+        self.p1_text_effects, self.p2_text_effects = [], []
         self.p1_sliced_pieces, self.p2_sliced_pieces = [], []
         self.p1_particles, self.p2_particles = [], []
         self.p1_feedback, self.p2_feedback = "", ""
         self.p1_prev_left_wrist_screen, self.p1_prev_right_wrist_screen = None, None
         self.p2_prev_left_wrist_screen, self.p2_prev_right_wrist_screen = None, None
         self.p1_last_spawn, self.p2_last_spawn = time.time(), time.time()
+       
+        self.p1_left_trail = deque(maxlen=20)
+        self.p1_right_trail = deque(maxlen=20)
+        self.p2_left_trail = deque(maxlen=20)
+        self.p2_right_trail = deque(maxlen=20)
+    
         self.prev_time = time.time()
 
     def spawn_object(self, is_fruit=True):
@@ -170,6 +178,25 @@ class FruitNinjaGame(Game):
             if obj['y'] < 1.3: 
                 new_objects.append(obj)
         return new_objects
+    
+    def update_text_effects(self, text_effects):
+        updated_effects = []
+        for effect in text_effects:
+            effect['life'] -= 1
+            if effect['life'] > 0:
+                # Animation logic: grow for the first half, shrink for the second
+                half_life = effect['max_life'] / 2
+                if effect['life'] > half_life:
+                    # Grow phase
+                    progress = (effect['max_life'] - effect['life']) / half_life
+                else:
+                    # Shrink phase
+                    progress = effect['life'] / half_life
+                
+                effect['font_scale'] = effect['min_scale'] + (effect['max_scale'] - effect['min_scale']) * progress
+                updated_effects.append(effect)
+        return updated_effects
+    
 
     def check_slice(self, prev_pos, curr_pos, objects, half_width, height):
         sliced = []
@@ -183,12 +210,15 @@ class FruitNinjaGame(Game):
         return sliced
         
     def process_slicing_for_player(self, player_data):
-        pose, prev_wrists, fruits, bombs, sliced_pieces, particles, score, feedback_text = player_data
+        pose, prev_wrists, fruits, bombs, sliced_pieces, particles, text_effects, trails, score, feedback_text = player_data
         
         half_width, height = 960, 1080
         landmarks = pose.pose_landmarks.landmark
         wrists = {'left': [landmarks[15].x * half_width, landmarks[15].y * height],
                   'right': [landmarks[16].x * half_width, landmarks[16].y * height]}
+
+        trails['left'].append(wrists['left'])
+        trails['right'].append(wrists['right'])
 
         for hand in ['left', 'right']:
             if prev_wrists[hand]:
@@ -210,6 +240,13 @@ class FruitNinjaGame(Game):
                         fruit = fruits.pop(i)
                         score += 1
                         feedback_text = "Sliced!"
+
+                        text_effects.append({
+                            'text': '+1', 'x': fruit['x'], 'y': fruit['y'],
+                            'life': 30, 'max_life': 30, # Lifetime in frames
+                            'font_scale': 0, 'min_scale': 1, 'max_scale': 2, # Animation scales
+                            'color': (255, 255, 255) # White color
+                        })
                         
                         # Push pieces perpendicular to the slice direction
                         separation_speed = 0.5 
@@ -244,6 +281,14 @@ class FruitNinjaGame(Game):
                         bomb = bombs.pop(i)
                         score -= 5
                         feedback_text = "Boom!"
+
+                        text_effects.append({
+                            'text': '-5', 'x': bomb['x'], 'y': bomb['y'],
+                            'life': 30, 'max_life': 30, # Lifetime in frames
+                            'font_scale': 0, 'min_scale': 1.5, 'max_scale': 3, # Animation scales
+                            'color': (8, 15, 207) 
+                        })
+
                         for _ in range(30):
                             angle, speed = random.uniform(0, 2*np.pi), random.uniform(1, 4)
                             particles.append({'x': bomb['x'], 'y': bomb['y'], 'vx': np.cos(angle)*speed, 'vy': np.sin(angle)*speed, 'life': 30, 'radius': random.randint(3,8), 'color': random.choice([(0,0,255), (0,165,255), (0,255,255)])})
@@ -267,13 +312,19 @@ class FruitNinjaGame(Game):
         for lst in ['p1_fruits', 'p1_bombs', 'p1_sliced_pieces', 'p1_particles', 'p2_fruits', 'p2_bombs', 'p2_sliced_pieces', 'p2_particles']:
             setattr(self, lst, self.update_objects(getattr(self, lst), self.dt))
 
+        self.p1_text_effects = self.update_text_effects(self.p1_text_effects)
+        self.p2_text_effects = self.update_text_effects(self.p2_text_effects)
+
         if pose_data['p1'] and pose_data['p1'].pose_landmarks:
-            wrists, self.p1_score, self.p1_feedback = self.process_slicing_for_player([pose_data['p1'], {'left': self.p1_prev_left_wrist_screen, 'right': self.p1_prev_right_wrist_screen}, self.p1_fruits, self.p1_bombs, self.p1_sliced_pieces, self.p1_particles, self.p1_score, self.p1_feedback])
+            p1_trails = {'left': self.p1_left_trail, 'right': self.p1_right_trail}
+            wrists, self.p1_score, self.p1_feedback = self.process_slicing_for_player([pose_data['p1'], {'left': self.p1_prev_left_wrist_screen, 'right': self.p1_prev_right_wrist_screen}, self.p1_fruits, self.p1_bombs, self.p1_sliced_pieces, self.p1_particles, self.p1_text_effects, p1_trails, self.p1_score, self.p1_feedback])
             self.p1_prev_left_wrist_screen, self.p1_prev_right_wrist_screen = wrists['left'], wrists['right']
         if pose_data['p2'] and pose_data['p2'].pose_landmarks:
-            wrists, self.p2_score, self.p2_feedback = self.process_slicing_for_player([pose_data['p2'], {'left': self.p2_prev_left_wrist_screen, 'right': self.p2_prev_right_wrist_screen}, self.p2_fruits, self.p2_bombs, self.p2_sliced_pieces, self.p2_particles, self.p2_score, self.p2_feedback])
+            p2_trails = {'left': self.p2_left_trail, 'right': self.p2_right_trail}
+            wrists, self.p2_score, self.p2_feedback = self.process_slicing_for_player([pose_data['p2'], {'left': self.p2_prev_left_wrist_screen, 'right': self.p2_prev_right_wrist_screen}, self.p2_fruits, self.p2_bombs, self.p2_sliced_pieces, self.p2_particles, self.p2_text_effects, p2_trails, self.p2_score, self.p2_feedback])
             self.p2_prev_left_wrist_screen, self.p2_prev_right_wrist_screen = wrists['left'], wrists['right']
 
+        
     def update(self, pose_data):
         self.pose_data = pose_data
         self.handle_input(pose_data)
@@ -287,6 +338,23 @@ class FruitNinjaGame(Game):
         image_p2 = frame[:, half_width:]
 
         # Drawing loop for p1_sliced_pieces needs to handle rotation
+        ## NEW TRAIL EFFECT: Draw the trails for Player 1
+        for trail in [self.p1_left_trail, self.p1_right_trail]:
+            for i, point in enumerate(trail):
+                # Make older points smaller and more transparent
+                alpha = i / len(trail)
+                radius = int(2 + alpha * 15)
+                color = (0, int(200 * alpha), int(255 * alpha)) # Fades from black to yellow
+                if i != len(trail)-1:
+                    nextPoint = trail[i+1]
+                    for a_d in range(0, 100, 1):
+                        a = a_d / 100.0
+                        interPoint = (int(point[0]*(1-a) + nextPoint[0]*a), int(point[1]*(1-a) + nextPoint[1]*a))
+                        cv2.circle(image_p1, interPoint, radius, color, -1)
+
+                cv2.circle(image_p1, (int(point[0]), int(point[1])), radius, color, -1)
+        
+
         for obj_list in [self.p1_fruits, self.p1_bombs, self.p1_sliced_pieces]:
             for obj in obj_list:
                 img_to_draw = obj['image'] if 'image' in obj else obj['images']['whole']
@@ -295,8 +363,12 @@ class FruitNinjaGame(Game):
                 overlay_transparent(image_p1, img_to_draw, int(obj['x'] * half_width), int(obj['y'] * height))
 
         for p in self.p1_particles: cv2.circle(image_p1, (int(p['x'] * half_width), int(p['y'] * height)), p['radius'], p['color'], -1)
-        if self.pose_data['p1']: self.mp_drawing.draw_landmarks(image_p1, self.pose_data['p1'].pose_landmarks, self.mp_pose.POSE_CONNECTIONS)
-            
+        #if self.pose_data['p1']: self.mp_drawing.draw_landmarks(image_p1, self.pose_data['p1'].pose_landmarks, self.mp_pose.POSE_CONNECTIONS)
+        
+        for effect in self.p1_text_effects:
+            pos = (int(effect['x'] * half_width), int(effect['y'] * height))
+            cv2.putText(image_p1, effect['text'], pos, cv2.FONT_HERSHEY_SIMPLEX, effect['font_scale'], effect['color'], 3, cv2.LINE_AA)
+
         # Drawing loop for p2_sliced_pieces needs to handle rotation
         for obj_list in [self.p2_fruits, self.p2_bombs, self.p2_sliced_pieces]:
             for obj in obj_list:
@@ -306,7 +378,26 @@ class FruitNinjaGame(Game):
                 overlay_transparent(image_p2, img_to_draw, int(obj['x'] * half_width), int(obj['y'] * height))
 
         for p in self.p2_particles: cv2.circle(image_p2, (int(p['x'] * half_width), int(p['y'] * height)), p['radius'], p['color'], -1)
-        if self.pose_data['p2']: self.mp_drawing.draw_landmarks(image_p2, self.pose_data['p2'].pose_landmarks, self.mp_pose.POSE_CONNECTIONS)
+        #if self.pose_data['p2']: self.mp_drawing.draw_landmarks(image_p2, self.pose_data['p2'].pose_landmarks, self.mp_pose.POSE_CONNECTIONS)
+
+        for effect in self.p2_text_effects:
+            pos = (int(effect['x'] * half_width), int(effect['y'] * height))
+            cv2.putText(image_p2, effect['text'], pos, cv2.FONT_HERSHEY_SIMPLEX, effect['font_scale'], effect['color'], 3, cv2.LINE_AA)
+
+        for trail in [self.p2_left_trail, self.p2_right_trail]:
+            for i, point in enumerate(trail):
+                alpha = i / len(trail)
+                radius = int(2 + alpha * 15)
+                color = (int(255 * alpha), int(150 * alpha), 0) # Fades from black to blue
+                if i != len(trail)-1:
+                    nextPoint = trail[i+1]
+                    for a_d in range(0, 100, 1):
+                        a = a_d / 100.0
+                        interPoint = (int(point[0]*(1-a) + nextPoint[0]*a), int(point[1]*(1-a) + nextPoint[1]*a))
+                        cv2.circle(image_p1, interPoint, radius, color, -1)
+
+                cv2.circle(image_p2, (int(point[0]), int(point[1])), radius, color, -1)
+
 
         frame[:, :half_width] = image_p1
         frame[:, half_width:] = image_p2
