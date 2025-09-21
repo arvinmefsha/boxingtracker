@@ -264,12 +264,12 @@ class FruitNinjaGame(Game):
         self.p1_text_effects = self.update_text_effects(self.p1_text_effects)
         self.p2_text_effects = self.update_text_effects(self.p2_text_effects)
 
-    def update(self, pose_data):
+    def update(self, pose_data, dt):
         self.pose_data = pose_data
         self.handle_input(pose_data)
 
     def render(self, frame):
-        self.update(self.pose_data)
+        
         
         height, width, _ = frame.shape
         half_width = width // 2
