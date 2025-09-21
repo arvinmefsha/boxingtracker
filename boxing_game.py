@@ -34,7 +34,7 @@ class BoxingGame(Game):
         self.last_stunned_by = {'p1': None, 'p2': None}
         # global cross-attack cooldown (any attack -> 1.5s lockout)
         self.last_attack_time = {'p1': 0.0, 'p2': 0.0}
-        self.global_cooldown_s = 1.0
+        self.global_cooldown_s = 0.5
 
         self.game_over = False
 
@@ -49,9 +49,9 @@ class BoxingGame(Game):
             self.kick_sound = pygame.mixer.Sound(kick_path) if os.path.exists(kick_path) else None
             # 'weave' or 'woosh' sound for perfect weave
             self.woosh_sound = pygame.mixer.Sound(weave_path) if os.path.exists(weave_path) else None
-            if self.punch_sound: self.punch_sound.set_volume(0.5)
-            if self.kick_sound: self.kick_sound.set_volume(0.6)
-            if self.woosh_sound: self.woosh_sound.set_volume(0.4)
+            if self.punch_sound: self.punch_sound.set_volume(1)
+            if self.kick_sound: self.kick_sound.set_volume(1)
+            if self.woosh_sound: self.woosh_sound.set_volume(1)
         except Exception as e:
             print(f"Sound init failed: {e}. Running without sound.")
             self.punch_sound = None
@@ -67,8 +67,8 @@ class BoxingGame(Game):
         self.pose_data = {'p1': None, 'p2': None}
 
         # Reset hearts
-        self.p1_hearts = 15
-        self.p2_hearts = 15
+        self.p1_hearts = 9
+        self.p2_hearts = 9
 
         # Reset combat state
         self.pending_attack = {'p1': None, 'p2': None}
@@ -135,7 +135,7 @@ class BoxingGame(Game):
             pa = self.pending_attack[attacker]
             if pa is None:
                 continue
-            if now - pa['time'] >= 2.0:
+            if now - pa['time'] >= 1.25:
                 defender = pa['defender']
                 # UPDATED DAMAGE: kick=3, punch=1
                 dmg = 3 if pa['type'] == 'kick' else 1
@@ -173,9 +173,9 @@ class BoxingGame(Game):
         if pa is None:
             return  # weaving without an incoming attack has no special effect
         dt = time.time() - pa['time']
-        if dt < 1.0:
+        if dt < 0.75:
             # Perfect weave: stun the attacker for 1s, cancel attack
-            self.stun_until[opponent] = time.time() + 1.0
+            self.stun_until[opponent] = time.time() + 0.5
             self.last_stunned_by[opponent] = weaver
             self.pending_attack[opponent] = None
             # Play woosh sound for perfect weave (attacker stunned)
@@ -184,7 +184,7 @@ class BoxingGame(Game):
                     self.woosh_sound.play()
                 except Exception:
                     pass
-        elif 1.0 <= dt <= 2.0:
+        elif 0.75 <= dt <= 1.25:
             # Late weave: neutralize attack (no stun, no sound)
             self.pending_attack[opponent] = None
         else:
