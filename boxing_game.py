@@ -59,7 +59,6 @@ class BoxingGame(Game):
             self.woosh_sound = None
 
     def reset(self):
-        """Reset game state for a new session."""
         self.p1_state = FighterState()
         self.p2_state = FighterState()
 
@@ -76,7 +75,6 @@ class BoxingGame(Game):
         self.game_over = False
 
     def _ensure_hand_fields(self, state, side: str):
-        """Ensure per-hand fields exist (stateful compatibility across versions)."""
         hand_state_attr = f'{side}_hand_state'
         punch_count_attr = f'{side}_punch_count'
         last_punch_ts_attr = f'last_{side}_punch_ts'
@@ -114,7 +112,6 @@ class BoxingGame(Game):
         self.last_attack_time[who] = time.time()
 
     def _start_attack(self, attacker: str, attack_type: str):
-        """Register a new pending attack; damage resolves in up to 2s window unless weaved."""
         now = time.time()
         defender = self._other(attacker)
         self.pending_attack[attacker] = {
@@ -125,7 +122,6 @@ class BoxingGame(Game):
         self._mark_attack_time(attacker)
 
     def _resolve_expired_attacks(self):
-        """Apply damage for any attack whose 2s weave window expired without a qualifying weave."""
         now = time.time()
         for attacker in ('p1', 'p2'):
             pa = self.pending_attack[attacker]
@@ -151,14 +147,12 @@ class BoxingGame(Game):
                 self.pending_attack[attacker] = None
 
     def _try_end_stun_early_on_counter(self, counterattacker: str):
-        """If the counterattacker is the same player who caused the opponent's stun, end opponent stun early."""
         opponent = self._other(counterattacker)
         if self.last_stunned_by[opponent] == counterattacker:
             self.stun_until[opponent] = time.time()
             self.last_stunned_by[opponent] = None
 
     def _handle_weave_event(self, weaver: str):
-        """Apply timing logic vs opponent's pending attack when a weave occurs."""
         opponent = self._other(weaver)
         pa = self.pending_attack[opponent]
         if pa is None:
@@ -190,15 +184,7 @@ class BoxingGame(Game):
         shoulder_min_angle: float = 45.0,
         cooldown_s: float = 0.25
     ):
-        """
-        Count a punch for the given arm ('left' or 'right') when ALL are true:
-          1) Arm extension: angle(shoulder–elbow–wrist) > angle_threshold (default 150°)
-          2) Both hands above waist: wrist.y < waist_y and other_wrist.y < waist_y
-          3) Shoulder openness: angle(hip–shoulder–elbow) >= shoulder_min_angle (default 45°)
-          4) Per-arm detection cooldown passed (default 0.25 s) to reduce jitter
-        Uses a simple two-state machine per arm: IDLE -> PUNCHING -> IDLE.
-        Returns: (did_punch: bool, debug: dict)
-        """
+
         debug = {}
         did_punch = False
 
@@ -254,12 +240,6 @@ class BoxingGame(Game):
         return did_punch, debug
 
     def detect_kick(self, state, hip, ankle, side: str, idle_buffer=0.05):
-        """
-        Kick detection for a specified leg ('left' or 'right').
-        Counts a kick when the ankle rises above the hip (y decreases).
-        Uses a small buffer before resetting to IDLE to avoid jitter.
-        Returns: (did_kick: bool, debug: dict)
-        """
         debug = {}
         did_kick = False
 
@@ -290,10 +270,6 @@ class BoxingGame(Game):
         return did_kick, debug
 
     def detect_weave(self, state, LH, LS, RH, RS, angle_from_vertical_thresh: float = 45.0, hysteresis: float = 3.0):
-        """
-        Weave when torso line (hip->shoulder) tilts more than 'angle_from_vertical_thresh'
-        degrees away from vertical on EITHER side. (Prevents weave firing on straight kicks.)
-        """
         debug = {}
         did_weave = False
         self._ensure_weave_fields(state)
@@ -369,7 +345,6 @@ class BoxingGame(Game):
             self._handle_weave_event(who)
 
     def handle_input(self, pose_data):
-        """Process pose data for both players."""
         self.pose_data = pose_data
         current_time = time.time()
         dt = current_time - self.prev_time
@@ -386,7 +361,6 @@ class BoxingGame(Game):
             self.process_fighter('p2', pose_data['p2'].pose_landmarks.landmark, self.p2_state, dt)
 
     def update(self, pose_data, dt):
-        """Update game state (input, attack resolution, end-state)."""
         if self.game_over:
             return
 
@@ -398,7 +372,6 @@ class BoxingGame(Game):
             self.game_over = True
 
     def render(self, frame):
-        """Render the boxing game visuals with dynamic, resolution-relative layout."""
         height, width, _ = frame.shape
         half_width = width // 2
         image_p1 = frame[:, :half_width]
