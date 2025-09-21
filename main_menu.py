@@ -44,10 +44,10 @@ class MainMenu(Game):
             sys.exit(1)
         
         # Define sizes
-        new_button_size = (200, 70)
+        new_button_size = (250, 100)
         new_arrow_size = (150, 150)
-        thumbnail_size = (800, 450)
-        cursor_size = (40, 40)
+        thumbnail_size = (1000, 600)
+        cursor_size = (60, 60)
         
         # Load, check, and resize all assets
         self.cursor_image = self.load_and_resize_asset(os.path.join('assets', 'hand.png'), cursor_size)
@@ -72,14 +72,15 @@ class MainMenu(Game):
         self.hover_time = 0.7
         self.hover_timers = {'left': None, 'right': None, 'play': None}
         
-        ## FIXED: The button regions now accurately match your visual layout
         self.button_regions = {
-            # Left Arrow is 150x150, centered at (180, 400)
-            'left':  (180 - 75, 400 - 75, 180 + 75, 400 + 75),   # (105, 325, 255, 475)
-            # Right Arrow is 150x150, centered at (1100, 400)
-            'right': (1100 - 75, 400 - 75, 1100 + 75, 400 + 75), # (1025, 325, 1175, 475)
-            # Play Button is 200x70, centered at (640, 660)
-            'play':  (640 - 100, 660 - 35, 640 + 100, 660 + 35)    # (540, 625, 740, 695)
+            # Left Arrow is 150x150, centered at (360, 500)
+            'left':  (360 - 75, 500 - 75, 360 + 75, 500 + 75),   # (285, 425, 435, 575)
+            
+            # Right Arrow is 150x150, centered at (1550, 500)
+            'right': (1550 - 75, 500 - 75, 1550 + 75, 500 + 75), # (1475, 425, 1625, 575)
+            
+            # Play Button is 250x100, centered at (960, 980)
+            'play':  (960 - 125, 980 - 50, 960 + 125, 980 + 50)  # (835, 930, 1085, 1030)
         }
 
         self.cursor_pos = (0, 0)
@@ -174,24 +175,24 @@ class MainMenu(Game):
                 cv2.putText(frame, line, (400, 300 + i * 50), cv2.FONT_HERSHEY_SIMPLEX, 1.2, (220, 220, 220), 2, cv2.LINE_AA)
         else:
             if selected_item["thumbnail"] is not None:
-                frame = overlay_transparent(frame, selected_item["thumbnail"], 960-320, 400)
+                frame = overlay_transparent(frame, selected_item["thumbnail"], 960, 500)
         
         # Draw Item Name
         item_name = selected_item["name"]
         text_size, _ = cv2.getTextSize(item_name, cv2.FONT_HERSHEY_SIMPLEX, 2.5, 4)
         text_x = (frame.shape[1] - text_size[0]) // 2
-        cv2.putText(frame, item_name, (text_x, 800), cv2.FONT_HERSHEY_SIMPLEX, 2.5, (255, 255, 255), 4, cv2.LINE_AA)
+        cv2.putText(frame, item_name, (text_x, 900), cv2.FONT_HERSHEY_SIMPLEX, 2.5, (255, 255, 255), 4, cv2.LINE_AA)
         
         # Draw Arrows (active or disabled)
         left_arrow_img = self.arrow_left if self.selected_game_index > 0 else self.arrow_left_disabled
         right_arrow_img = self.arrow_right if self.selected_game_index < len(self.games) - 1 else self.arrow_right_disabled
         if self.selected_game_index > 0:
-            frame = overlay_transparent(frame, left_arrow_img, 180, 400)
+            frame = overlay_transparent(frame, left_arrow_img, 360, 500)
         if self.selected_game_index < len(self.games) - 1:
-            frame = overlay_transparent(frame, right_arrow_img, 1100, 400)
+            frame = overlay_transparent(frame, right_arrow_img, 1550, 500)
 
         # Draw Play Button
-        frame = overlay_transparent(frame, self.play_button, 960-320, 660)
+        frame = overlay_transparent(frame, self.play_button, 960, 980)
         
         # Draw Hover Progress Bars
         for name, start_time in self.hover_timers.items():

@@ -2,117 +2,100 @@
 
 import cv2
 import mediapipe as mp
-import numpy as np
 import sys
-import os
 
+# Import your game state classes
 from main_menu import MainMenu
 from fruit_ninja_game import FruitNinjaGame
 # from boxing_game import BoxingGame # etc.
 
 class GameManager:
     def __init__(self):
-        # ... (video capture setup is the same) ...
+        # -- Video Capture Setup --
         self.cap = cv2.VideoCapture(0)
         if not self.cap.isOpened():
             raise IOError("Cannot open webcam")
-        self.cap.set(cv2.CAP_PROP_FRAME_WIDTH, 1280)
-        self.cap.set(cv2.CAP_PROP_FRAME_HEIGHT, 720)
+        self.cap.set(cv2.CAP_PROP_FRAME_WIDTH, 1920)
+        self.cap.set(cv2.CAP_PROP_FRAME_HEIGHT, 1080)
 
-        ## STABILITY FIX: Tell MediaPipe to look for up to 2 hands
+        # Initialize BOTH MediaPipe models
         self.mp_hands = mp.solutions.hands
-        self.hands = self.mp_hands.Hands(
-            static_image_mode=False,
-            max_num_hands=2, # Increased from 1 to 2
-            min_detection_confidence=0.7,
-            min_tracking_confidence=0.7
-        )
+        self.hands = self.mp_hands.Hands(max_num_hands=1, min_detection_confidence=0.7)
+        self.mp_pose = mp.solutions.pose
+        self.pose = self.mp_pose.Pose(min_detection_confidence=0.5, min_tracking_confidence=0.5)
 
         # -- Game State Setup --
         self.current_game = MainMenu()
-        
-        # -- Gesture Control State --
-        self.pinch_was_active_last_frame = False
-        self.pinch_threshold = 0.07
-        ## STABILITY FIX: Add a variable to store the position of the locked-on hand
-        self.locked_hand_pos = None
 
-    def get_landmark_distance(self, landmark1, landmark2):
-        return np.sqrt((landmark2.x - landmark1.x)**2 + (landmark2.y - landmark1.y)**2)
-
-    def process_frame_for_hands(self, frame):
-        frame_rgb = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
-        results = self.hands.process(frame_rgb)
-        
-        hand_data = {'found': False, 'cursor_pos': None, 'click': False, 'landmarks': None}
-
-        if results.multi_hand_landmarks:
-            tracked_hand = None
-
-            ## STABILITY FIX: Logic to lock onto the closest hand
-            if self.locked_hand_pos is None:
-                # If no hand is locked, lock onto the first one found
-                tracked_hand = results.multi_hand_landmarks[0]
-            else:
-                # Find the hand closest to our last known position
-                min_dist = float('inf')
-                for hand_landmarks in results.multi_hand_landmarks:
-                    # Use the wrist landmark to find the hand's center
-                    wrist_pos = hand_landmarks.landmark[self.mp_hands.HandLandmark.WRIST]
-                    dist = np.sqrt((wrist_pos.x - self.locked_hand_pos[0])**2 + (wrist_pos.y - self.locked_hand_pos[1])**2)
-                    if dist < min_dist:
-                        min_dist = dist
-                        tracked_hand = hand_landmarks
-
-            if tracked_hand:
-                hand_data['found'] = True
-                hand_data['landmarks'] = tracked_hand.landmark
-                
-                # Update the locked position to the wrist of the tracked hand
-                wrist = tracked_hand.landmark[self.mp_hands.HandLandmark.WRIST]
-                self.locked_hand_pos = (wrist.x, wrist.y)
-
-                # --- Cursor Position (from Ring Finger MCP) ---
-                ring_finger_mcp = tracked_hand.landmark[self.mp_hands.HandLandmark.RING_FINGER_MCP]
-                cursor_x = int(ring_finger_mcp.x * frame.shape[1])
-                cursor_y = int(ring_finger_mcp.y * frame.shape[0])
-                hand_data['cursor_pos'] = (cursor_x, cursor_y)
-
-                # --- Click Detection (Pinch Gesture) ---
-                index_tip = tracked_hand.landmark[self.mp_hands.HandLandmark.INDEX_FINGER_TIP]
-                thumb_tip = tracked_hand.landmark[self.mp_hands.HandLandmark.THUMB_TIP]
-                is_pinching_now = self.get_landmark_distance(index_tip, thumb_tip) < self.pinch_threshold
-                if is_pinching_now and not self.pinch_was_active_last_frame:
-                    hand_data['click'] = True
-                self.pinch_was_active_last_frame = is_pinching_now
-        else:
-            # If no hands are found, reset the lock and pinch state
-            self.pinch_was_active_last_frame = False
-            self.locked_hand_pos = None # Lose the lock
-            
-        return hand_data
-
-    # ... (The run method is unchanged) ...
     def run(self):
         while True:
             ret, frame = self.cap.read()
-            if not ret: break
+            if not ret:
+                break
+            
             frame = cv2.flip(frame, 1)
-            hand_data = self.process_frame_for_hands(frame)
-            self.current_game.hand_data = hand_data
+
+            # --- THIS IS THE CRITICAL FIX ---
+            # All UI is designed for 1920x1080. We MUST force the frame to that size.
+            # No matter what the camera provides, the rest of the program will now
+            # receive a correctly sized canvas to draw on.
+            frame = cv2.resize(frame, (1920, 1080))
+            # ------------------------------------
+
+            frame_rgb = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
+
+            # Smartly choose which model to run
+            if isinstance(self.current_game, MainMenu):
+                results = self.hands.process(frame_rgb)
+                hand_data = {'found': False, 'cursor_pos': self.current_game.cursor_pos}
+                if results.multi_hand_landmarks:
+                    hand_landmarks = results.multi_hand_landmarks[0]
+                    hand_data['found'] = True
+                    cursor_landmark = hand_landmarks.landmark[self.mp_hands.HandLandmark.INDEX_FINGER_TIP]
+                    # The frame.shape here is now guaranteed to be (1080, 1920, 3)
+                    hand_data['cursor_pos'] = (cursor_landmark.x * frame.shape[1], cursor_landmark.y * frame.shape[0])
+                self.current_game.hand_data = hand_data
+
+            elif isinstance(self.current_game, FruitNinjaGame):
+                height, width, _ = frame.shape
+                half_width = width // 2
+                p1_results = self.pose.process(frame_rgb[:, :half_width])
+                p2_results = self.pose.process(frame_rgb[:, half_width:])
+                self.current_game.pose_data = {'p1': p1_results, 'p2': p2_results}
+
+            # Let the current game render itself
             result = self.current_game.render(frame)
+
+            # Check for a command to switch games
             if isinstance(result, str):
                 selected_option = result
                 if selected_option == "Start Fruit Ninja Game":
                     self.current_game = FruitNinjaGame()
+                # elif selected_option == "Start Boxing Game":
+                #     self.current_game = BoxingGame()
                 elif selected_option == "Exit":
                     break
-            else: frame = result
+            else:
+                frame = result
+
+            # --- DIAGNOSTIC TEXT ---
+            # This text will show you the final resolution of the frame.
+            # It should say "(1080, 1920, 3)". If it says something else,
+            # the resize did not work.
+            #cv2.putText(frame, f"Final Frame Shape: {frame.shape}", (20, 40), cv2.FONT_HERSHEY_SIMPLEX, 1, (0, 255, 0), 2)
+            # -------------------------
+
             cv2.imshow('Body Game Platform', frame)
+
             key = cv2.waitKey(1) & 0xFF
-            if key == ord('q'): break
+            if key == ord('q'):
+                break
             elif key == ord('m') and not isinstance(self.current_game, MainMenu):
+                print("Returning to menu...")
                 self.current_game = MainMenu()
+
+        # Final cleanup
         self.cap.release()
         self.hands.close()
+        self.pose.close()
         cv2.destroyAllWindows()

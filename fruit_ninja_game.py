@@ -297,7 +297,7 @@ class FruitNinjaGame(Game):
         for effect in self.p1_text_effects:
             pos = (int(effect['x'] * half_width), int(effect['y'] * height))
             cv2.putText(image_p1, effect['text'], pos, cv2.FONT_HERSHEY_SIMPLEX, effect['font_scale'], effect['color'], 3, cv2.LINE_AA)
-        if self.pose_data['p1']: self.mp_drawing.draw_landmarks(image_p1, self.pose_data['p1'].pose_landmarks, self.mp_pose.POSE_CONNECTIONS)
+        #if self.pose_data['p1']: self.mp_drawing.draw_landmarks(image_p1, self.pose_data['p1'].pose_landmarks, self.mp_pose.POSE_CONNECTIONS)
         for trail in [self.p2_left_trail, self.p2_right_trail]:
             for i, point in enumerate(trail):
                 alpha = i / len(trail)
@@ -319,7 +319,7 @@ class FruitNinjaGame(Game):
         for effect in self.p2_text_effects:
             pos = (int(effect['x'] * half_width), int(effect['y'] * height))
             cv2.putText(image_p2, effect['text'], pos, cv2.FONT_HERSHEY_SIMPLEX, effect['font_scale'], effect['color'], 3, cv2.LINE_AA)
-        if self.pose_data['p2']: self.mp_drawing.draw_landmarks(image_p2, self.pose_data['p2'].pose_landmarks, self.mp_pose.POSE_CONNECTIONS)
+        #if self.pose_data['p2']: self.mp_drawing.draw_landmarks(image_p2, self.pose_data['p2'].pose_landmarks, self.mp_pose.POSE_CONNECTIONS)
 
         frame[:, :half_width], frame[:, half_width:] = image_p1, image_p2
         
