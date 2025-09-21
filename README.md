@@ -1,5 +1,41 @@
 # Kinemo
 
+![alt text](assets/logo.png)
+
+Kinemo is a motion-controlled gaming console that was created under 48 hours at [PennApps](https://pennapps.com/) 2025.
+
+It leverages everyday laptop cameras(as opposed to custom hardware like the Xbox Kinect and the Wii) and modern libraries such as OpenCV and Mediapipe to accurately track body movement. 
+
+# Building
+
+Firstly, you need atleast Python 3.10 for this project.
+
+Make sure to install all of the dependencies listed in `requirements.txt` needed for this project.
+
+We recommend setting up a virtual environment before running the following commands. 
+
+You can run the following command to do so:
+
+```
+pip install -r requirements.txt
+```
+
+Then,
+
+```
+git clone https://github.com/arvinmefsha/kinemo
+```
+
+
+Finally, to run:
+```
+python main.py
+```
+
+# Controls
+
+Stand a few feet away from the center of the camera. To control the cursor, use your hand. You might have to put one hand behind your back while you control the cursor with the other. 
+
 ## Inspiration
 
 Our inspiration was wanting to have fun with friends! We thought doing augmented reality with pose estimation would be a great way to make games interactive and physical. We also wanted some intellectual stimulation so we invented our own boxing game as well!
@@ -30,6 +66,6 @@ We started off using mouse and keyboard navigation to go between the games in th
 
 This project helped us learn about performance optimization strategies. Our main approach was using a state-machine conditional processing in our GameManager class which chooses the least demanding motion-tracking model for the task. The various states reduced the computational requirements and standardized all incoming video that are compatible with multiple device cameras. This allowed a stable, high frame rate across all games for a responsive motion-controlled experience!
 
-## What's next for kinemo
+## What's next for Kinemo
 
 In the future, we would first like to add real-time matchmaking across the internet so you can play with someone anywhere. Next, we want to add a text-to-speech feature so our boxing coach can give feedback on punch placement and kick timing. Finally, we want to add other games like Simon Says and Just Dance for physical and intellectual stimulation!
