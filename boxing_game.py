@@ -2,6 +2,8 @@ import cv2
 import mediapipe as mp
 import time
 import math  # for angle-from-vertical
+import pygame
+import os
 
 from game import Game
 from helpers import calculate_distance, calculate_velocity, calculate_angle
@@ -35,6 +37,26 @@ class BoxingGame(Game):
         self.global_cooldown_s = 1.0
 
         self.game_over = False
+
+        # Initialize sound (optional)
+        try:
+            pygame.mixer.init()
+            # project root-level sound files
+            punch_path = os.path.join('assets', 'sounds', 'punch.mp3')
+            kick_path = os.path.join('assets', 'sounds', 'kick.mp3')
+            weave_path = os.path.join('assets', 'sounds', 'weave.mp3')
+            self.punch_sound = pygame.mixer.Sound(punch_path) if os.path.exists(punch_path) else None
+            self.kick_sound = pygame.mixer.Sound(kick_path) if os.path.exists(kick_path) else None
+            # 'weave' or 'woosh' sound for perfect weave
+            self.woosh_sound = pygame.mixer.Sound(weave_path) if os.path.exists(weave_path) else None
+            if self.punch_sound: self.punch_sound.set_volume(0.5)
+            if self.kick_sound: self.kick_sound.set_volume(0.6)
+            if self.woosh_sound: self.woosh_sound.set_volume(0.4)
+        except Exception as e:
+            print(f"Sound init failed: {e}. Running without sound.")
+            self.punch_sound = None
+            self.kick_sound = None
+            self.woosh_sound = None
 
     def reset(self):
         """Reset game state for a new session."""
@@ -121,6 +143,18 @@ class BoxingGame(Game):
                     self.p1_hearts = max(0, self.p1_hearts - dmg)
                 else:
                     self.p2_hearts = max(0, self.p2_hearts - dmg)
+                # Play hit sound (only if the defender failed to weave)
+                if pa['type'] == 'kick' and self.kick_sound:
+                    try:
+                        self.kick_sound.play()
+                    except Exception:
+                        pass
+                elif pa['type'] == 'punch' and self.punch_sound:
+                    try:
+                        self.punch_sound.play()
+                    except Exception:
+                        pass
+
                 # clear pending attack
                 self.pending_attack[attacker] = None
 
@@ -144,8 +178,14 @@ class BoxingGame(Game):
             self.stun_until[opponent] = time.time() + 1.0
             self.last_stunned_by[opponent] = weaver
             self.pending_attack[opponent] = None
+            # Play woosh sound for perfect weave (attacker stunned)
+            if self.woosh_sound:
+                try:
+                    self.woosh_sound.play()
+                except Exception:
+                    pass
         elif 1.0 <= dt <= 2.0:
-            # Late weave: neutralize attack (no stun, no damage)
+            # Late weave: neutralize attack (no stun, no sound)
             self.pending_attack[opponent] = None
         else:
             # Outside window: no special effect
