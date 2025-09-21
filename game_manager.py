@@ -8,7 +8,8 @@ import time
 # Import ALL your game state classes
 from main_menu import MainMenu
 from fruit_ninja_game import FruitNinjaGame
-from boxing_game import BoxingGame 
+from boxing_game import BoxingGame
+from reaction_time_game import ReactionTimeGame ## NEW: Import ReactionTimeGame
 
 class GameManager:
     def __init__(self):
@@ -51,27 +52,23 @@ class GameManager:
                     hand_data['cursor_pos'] = (cursor_landmark.x * frame.shape[1], cursor_landmark.y * frame.shape[0])
                 self.current_game.hand_data = hand_data
 
-            ## BOXING GAME FIX: Special handling for the BoxingGame class
-            elif isinstance(self.current_game, BoxingGame):
-                # 1. Run the POSE model, since BoxingGame needs it
+            ## MODIFIED: Combined logic for all Pose-based games
+            elif isinstance(self.current_game, (BoxingGame, ReactionTimeGame)):
+                # Run the POSE model, since both games need it
                 height, width, _ = frame.shape
                 half_width = width // 2
                 p1_results = self.pose.process(frame_rgb[:, :half_width])
                 p2_results = self.pose.process(frame_rgb[:, half_width:])
                 pose_data = {'p1': p1_results, 'p2': p2_results}
 
-                # 2. Calculate delta time (dt)
+                # Calculate delta time (dt)
                 current_time = time.time()
                 dt = current_time - self.prev_time
                 self.prev_time = current_time
 
-                # 3. Call the .update() method that BoxingGame expects
+                # Call the .update() method that both games expect
                 self.current_game.update(pose_data, dt)
             
-            # (Your other games like FruitNinja would go here if they have a different structure)
-            # elif isinstance(self.current_game, FruitNinjaGame):
-            #     # ... handle fruit ninja ...
-
             # Let the current game render itself and check for menu commands
             result = self.current_game.render(frame)
 
@@ -81,8 +78,10 @@ class GameManager:
                 if selected_option == "Start Boxing Game":
                     self.current_game = BoxingGame()
                 elif selected_option == "Start Fruit Ninja Game":
-                    # This would need to be updated if you also add Fruit Ninja back
-                    pass 
+                    self.current_game = FruitNinjaGame()
+                ## NEW: Add case for Reaction Time Game
+                elif selected_option == "Start Reaction Time Game":
+                    self.current_game = ReactionTimeGame()
                 elif selected_option == "Exit":
                     break
             else:
@@ -93,7 +92,12 @@ class GameManager:
             key = cv2.waitKey(1) & 0xFF
             if key == ord('q'):
                 break
-            elif key == ord('m') and not isinstance(self.current_game, MainMenu):
+            
+            ## NEW: Pass key presses to the Reaction Time game if it's active
+            if isinstance(self.current_game, ReactionTimeGame):
+                self.current_game.handle_key(key)
+
+            if key == ord('m') and not isinstance(self.current_game, MainMenu):
                 print("Returning to menu...")
                 self.current_game = MainMenu()
 
