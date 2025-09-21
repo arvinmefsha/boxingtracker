@@ -14,7 +14,6 @@ from collections import deque
 from game import Game
 from helpers import calculate_velocity, line_circle_intersection
 
-# ... (overlay_transparent and rotate_image functions are unchanged) ...
 def overlay_transparent(background, overlay, x, y):
     if overlay.shape[2] < 4: return background
     bg_h, bg_w, _ = background.shape
@@ -69,17 +68,14 @@ class FruitNinjaGame(Game):
             sys.exit(1)
         self.bomb_image = cv2.resize(self.bomb_image, self.image_size, interpolation=cv2.INTER_AREA)
 
-        ## TIMER: Load the stopwatch image
         self.stopwatch_image = cv2.imread(os.path.join('assets', 'stopwatch.png'), cv2.IMREAD_UNCHANGED)
         if self.stopwatch_image is None:
             print("\n--- ERROR: Failed to load 'stopwatch.png'. Make sure it's in the 'assets' folder. ---\n")
             sys.exit(1)
-        ## TIMER: Resize stopwatch image for the dashboard
         self.stopwatch_image = cv2.resize(self.stopwatch_image, (60, 60), interpolation=cv2.INTER_AREA)
 
         print("Assets loaded successfully.")
 
-        # ... (sound initialization is unchanged) ...
         print("Initializing sound...")
         pygame.mixer.init()
         try:
@@ -94,7 +90,6 @@ class FruitNinjaGame(Game):
             print(f"\n--- Sound Error: {e} --- \nGame will run without sound.")
             self.theme_sound, self.slice_sound, self.bomb_sound = None, None, None
 
-        ## TIMER: Set up game duration variables
         self.game_duration = 30 # seconds
         self.game_start_time = None
         self.game_over = False
@@ -106,7 +101,6 @@ class FruitNinjaGame(Game):
         self.reset()
 
     def load_fruit_images(self, path):
-        # ... (this function is unchanged) ...
         images = {}
         fruit_types = ['apple', 'watermelon', 'banana']
         for fruit in fruit_types:
@@ -123,7 +117,6 @@ class FruitNinjaGame(Game):
         return images
 
     def reset(self):
-        # ... (most of reset is unchanged) ...
         self.p1_score, self.p2_score = 0, 0
         self.p1_fruits, self.p2_fruits = [], []
         self.p1_bombs, self.p2_bombs = [], []
@@ -137,12 +130,9 @@ class FruitNinjaGame(Game):
         self.p1_left_trail, self.p1_right_trail = deque(maxlen=20), deque(maxlen=20)
         self.p2_left_trail, self.p2_right_trail = deque(maxlen=20), deque(maxlen=20)
         self.prev_time = time.time()
-
-        ## TIMER: Reset the timer and game state
         self.game_start_time = time.time()
         self.game_over = False
 
-    # ... (spawn_object, update_objects, update_text_effects, check_slice are unchanged) ...
     def spawn_object(self, is_fruit=True):
         vx = random.uniform(-0.3, 0.3)
         vy = random.uniform(-1.2, -0.9) 
@@ -229,7 +219,6 @@ class FruitNinjaGame(Game):
         if self.dt == 0: return
         self.prev_time = current_time
 
-        ## TIMER: Update timer and check for game over
         if not self.game_over:
             elapsed_time = current_time - self.game_start_time
             self.time_remaining = self.game_duration - elapsed_time
@@ -238,7 +227,6 @@ class FruitNinjaGame(Game):
                 self.game_over = True
                 print("Game Over!")
 
-        ## TIMER: Only allow spawning and slicing if the game is not over
         if not self.game_over:
             if current_time - self.p1_last_spawn > self.spawn_interval:
                 obj = self.spawn_object(random.random() < 0.85)
@@ -258,7 +246,6 @@ class FruitNinjaGame(Game):
                 wrists, self.p2_score, self.p2_feedback = self.process_slicing_for_player([pose_data['p2'], {'left': self.p2_prev_left_wrist_screen, 'right': self.p2_prev_right_wrist_screen}, self.p2_fruits, self.p2_bombs, self.p2_sliced_pieces, self.p2_particles, self.p2_text_effects, p2_trails, self.p2_score, self.p2_feedback])
                 self.p2_prev_left_wrist_screen, self.p2_prev_right_wrist_screen = wrists['left'], wrists['right']
 
-        # These updates should happen even if the game is over, to let effects finish
         for lst in ['p1_fruits', 'p1_bombs', 'p1_sliced_pieces', 'p1_particles', 'p2_fruits', 'p2_bombs', 'p2_sliced_pieces', 'p2_particles']:
             setattr(self, lst, self.update_objects(getattr(self, lst), self.dt))
         self.p1_text_effects = self.update_text_effects(self.p1_text_effects)
@@ -275,7 +262,6 @@ class FruitNinjaGame(Game):
         half_width = width // 2
         image_p1, image_p2 = frame[:, :half_width], frame[:, half_width:]
 
-        # ... (drawing logic for trails, fruits, particles, text effects, poses is unchanged) ...
         for trail in [self.p1_left_trail, self.p1_right_trail]:
             for i, point in enumerate(trail):
                 alpha = i / len(trail)
@@ -297,7 +283,6 @@ class FruitNinjaGame(Game):
         for effect in self.p1_text_effects:
             pos = (int(effect['x'] * half_width), int(effect['y'] * height))
             cv2.putText(image_p1, effect['text'], pos, cv2.FONT_HERSHEY_SIMPLEX, effect['font_scale'], effect['color'], 3, cv2.LINE_AA)
-        #if self.pose_data['p1']: self.mp_drawing.draw_landmarks(image_p1, self.pose_data['p1'].pose_landmarks, self.mp_pose.POSE_CONNECTIONS)
         for trail in [self.p2_left_trail, self.p2_right_trail]:
             for i, point in enumerate(trail):
                 alpha = i / len(trail)
@@ -319,14 +304,12 @@ class FruitNinjaGame(Game):
         for effect in self.p2_text_effects:
             pos = (int(effect['x'] * half_width), int(effect['y'] * height))
             cv2.putText(image_p2, effect['text'], pos, cv2.FONT_HERSHEY_SIMPLEX, effect['font_scale'], effect['color'], 3, cv2.LINE_AA)
-        #if self.pose_data['p2']: self.mp_drawing.draw_landmarks(image_p2, self.pose_data['p2'].pose_landmarks, self.mp_pose.POSE_CONNECTIONS)
 
         frame[:, :half_width], frame[:, half_width:] = image_p1, image_p2
         
         cv2.line(frame, (half_width, 0), (half_width, height), (255, 255, 255), 2)
         cv2.rectangle(frame, (0, 0), (width, 150), (20, 20, 20), -1)
 
-        # ... (Player 1 and 2 score display is unchanged) ...
         cv2.putText(frame, 'PLAYER 1', (30, 40), cv2.FONT_HERSHEY_SIMPLEX, 1.0, (255, 150, 150), 2, cv2.LINE_AA)
         cv2.putText(frame, f'SCORE: {self.p1_score}', (30, 80), cv2.FONT_HERSHEY_SIMPLEX, 0.8, (255, 255, 255), 2, cv2.LINE_AA)
         cv2.putText(frame, self.p1_feedback, (30, 120), cv2.FONT_HERSHEY_SIMPLEX, 0.8, (0, 255, 0), 2, cv2.LINE_AA)
@@ -334,22 +317,18 @@ class FruitNinjaGame(Game):
         cv2.putText(frame, f'SCORE: {self.p2_score}', (width - 300, 80), cv2.FONT_HERSHEY_SIMPLEX, 0.8, (255, 255, 255), 2, cv2.LINE_AA)
         cv2.putText(frame, self.p2_feedback, (width - 300, 120), cv2.FONT_HERSHEY_SIMPLEX, 0.8, (0, 255, 0), 2, cv2.LINE_AA)
         
-        ## TIMER: Draw the stopwatch and timer text on the dashboard
-        # Draw stopwatch image in the top center
         stopwatch_x = width // 2
-        stopwatch_y = 75 # Y-center of the dashboard
+        stopwatch_y = 75
         overlay_transparent(frame, self.stopwatch_image, stopwatch_x, stopwatch_y)
 
-        # Draw timer text below the stopwatch
         time_text = str(int(self.time_remaining))
         font_scale = 1.5
         font_thickness = 3
         text_size, _ = cv2.getTextSize(time_text, cv2.FONT_HERSHEY_SIMPLEX, font_scale, font_thickness)
         text_x = stopwatch_x - text_size[0] // 2
-        text_y = stopwatch_y + 55 # Position it below the image
+        text_y = stopwatch_y + 55
         cv2.putText(frame, time_text, (text_x, text_y), cv2.FONT_HERSHEY_SIMPLEX, font_scale, (255, 255, 255), font_thickness, cv2.LINE_AA)
         
-        ## TIMER: Show "Game Over" text when the timer runs out
         if self.game_over:
             game_over_text = "Game Over"
             font_scale_go = 3
