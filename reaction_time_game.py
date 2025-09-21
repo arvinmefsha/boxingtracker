@@ -1,11 +1,8 @@
-# reaction_time_game.py
-
 import cv2
 import mediapipe as mp
 import time
 import random
 import numpy as np
-
 from game import Game
 
 class ReactionTimeGame(Game):
@@ -59,7 +56,6 @@ class ReactionTimeGame(Game):
         pose_data = self.pose_data
         if pose_data['p1'] is None or pose_data['p2'] is None:
             return
-
         #p1_raised = self.is_raised(pose_data['p1'].pose_landmarks.landmark if pose_data['p1'] and pose_data['p1'].pose_landmarks else None)
         #p2_raised = self.is_raised(pose_data['p2'].pose_landmarks.landmark if pose_data['p2'] and pose_data['p2'].pose_landmarks else None)
     
@@ -167,11 +163,9 @@ class ReactionTimeGame(Game):
         """Update game state."""
         self.pose_data = pose_data
         current_time = time.time()
-
         if self.state == "IDLE":
             p1_raised = self.is_raised(pose_data['p1'].pose_landmarks.landmark if pose_data['p1'] and pose_data['p1'].pose_landmarks else None)
             p2_raised = self.is_raised(pose_data['p2'].pose_landmarks.landmark if pose_data['p2'] and pose_data['p2'].pose_landmarks else None)
-
             if not self.raising_hands:
                 if p1_raised and p2_raised:
                     self.started_raising_hands = current_time
@@ -180,14 +174,17 @@ class ReactionTimeGame(Game):
                 if not (p1_raised and p2_raised):
                     self.raising_hands = False
                     self.started_raising_hands = None
-                elif current_time - self.started_raising_hands >= 3.0:
+                elif current_time - self.started_raising_hands >= 5.0:
+                    if self.p1_wins >= self.target_wins or self.p2_wins >= self.target_wins:
+                        self.reset_match()
+                    else:
+                        self.reset()
                     self.state = 'STARTING'
-                    self.countdown_end = current_time + 2  # 3 second countdown
+                    self.countdown_end = current_time + 5  # 5 second countdown
                     self.delay = random.uniform(3, 5)
                     self.start_time = current_time
                     self.raising_hands = False
                     self.started_raising_hands = None
-
             # Wait for both players to raise hands (handled in handle_key)
         elif self.state == 'STARTING':
             if (current_time-self.countdown_end) >= 0:
@@ -206,7 +203,7 @@ class ReactionTimeGame(Game):
                 self.p2_cheated = True
                 self.state = 'RESULTS'
                 return  # End immediately
-           
+            
             if current_time - self.start_time >= self.delay:
                 self.state = 'GREEN'
                 self.green_time = current_time
@@ -238,7 +235,6 @@ class ReactionTimeGame(Game):
             
             p1_raised = self.is_raised(pose_data['p1'].pose_landmarks.landmark if pose_data['p1'] and pose_data['p1'].pose_landmarks else None)
             p2_raised = self.is_raised(pose_data['p2'].pose_landmarks.landmark if pose_data['p2'] and pose_data['p2'].pose_landmarks else None)
-
             if not self.raising_hands:
                 if p1_raised and p2_raised:
                     self.started_raising_hands = current_time
@@ -248,6 +244,10 @@ class ReactionTimeGame(Game):
                     self.raising_hands = False
                     self.started_raising_hands = None
                 elif current_time - self.started_raising_hands >= 3.0:
+                    if self.p1_wins >= self.target_wins or self.p2_wins >= self.target_wins:
+                        self.reset_match()
+                    else:
+                        self.reset()
                     self.state = 'STARTING'
                     self.countdown_end = current_time + 2  # 3 second countdown
                     self.delay = random.uniform(3, 5)
@@ -255,14 +255,12 @@ class ReactionTimeGame(Game):
                     self.raising_hands = False
                     self.started_raising_hands = None
             
-
     def render(self, frame):
         """Render the reaction time game visuals."""
         height, width, _ = frame.shape
         half_width = width // 2
         image_p1 = frame[:, :half_width]
         image_p2 = frame[:, half_width:]
-
         # Draw landmarks for Player 1
         if self.pose_data['p1'] and self.pose_data['p1'].pose_landmarks:
             self.mp_drawing.draw_landmarks(
@@ -270,7 +268,6 @@ class ReactionTimeGame(Game):
                 landmark_drawing_spec=self.mp_drawing.DrawingSpec(color=(255, 0, 0), thickness=2, circle_radius=2),
                 connection_drawing_spec=self.mp_drawing.DrawingSpec(color=(200, 100, 0), thickness=2, circle_radius=2)
             )
-
         # Draw landmarks for Player 2
         if self.pose_data['p2'] and self.pose_data['p2'].pose_landmarks:
             self.mp_drawing.draw_landmarks(
@@ -278,24 +275,19 @@ class ReactionTimeGame(Game):
                 landmark_drawing_spec=self.mp_drawing.DrawingSpec(color=(0, 0, 255), thickness=2, circle_radius=2),
                 connection_drawing_spec=self.mp_drawing.DrawingSpec(color=(0, 100, 200), thickness=2, circle_radius=2)
             )
-
         # Combine images back
         frame[:, :half_width] = image_p1
         frame[:, half_width:] = image_p2
-
         # Resize to 1920x1080
         frame = cv2.resize(frame, (1920, 1080))
-
         # Draw divider line
         cv2.line(frame, (960, 0), (960, 1080), (255, 255, 255), 2)
-
         # Draw status bar at top
         if self.state in ['IDLE', 'WAITING', 'RESULTS']:
             bar_color = (0, 0, 255)  # Red
         else:  # GREEN
             bar_color = (0, 255, 0)  # Green
         cv2.rectangle(frame, (0, 0), (1920, 50), bar_color, -1)
-
         # Display instructions or results
         if self.state == 'IDLE':
             cv2.putText(frame, "Both players must raise there hands to start", (500, 500), cv2.FONT_HERSHEY_SIMPLEX, 1.5, (255, 255, 255), 3, cv2.LINE_AA)
@@ -361,5 +353,4 @@ class ReactionTimeGame(Game):
                 cv2.putText(frame, p1_text, (300, 500), cv2.FONT_HERSHEY_SIMPLEX, 1, (255, 0, 0), 2, cv2.LINE_AA)
                 cv2.putText(frame, p2_text, (1300, 500), cv2.FONT_HERSHEY_SIMPLEX, 1, (0, 0, 255), 2, cv2.LINE_AA)
                 cv2.putText(frame, "Raise hands again for new match", (700, 600), cv2.FONT_HERSHEY_SIMPLEX, 1, (200, 200, 200), 2, cv2.LINE_AA)
-
         return frame
