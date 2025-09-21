@@ -2,33 +2,47 @@
 
 ![alt text](assets/logo.png)
 
-Kinemo is a motion-controlled gaming console that was created under 48 hours at [PennApps](https://pennapps.com/) 2025.
+Kinemo is a motion-controlled gaming console that was created under 48 hours at [PennApps](https://pennapps.com/) 2025. It took first place overall in the competition.  
 
 It leverages everyday laptop cameras(as opposed to custom hardware like the Xbox Kinect and the Wii) and modern libraries such as OpenCV and Mediapipe to accurately track body movement. 
+
+Our makeshift team is incredibly proud of what we accomplished under 48 hours, and we look forward to becoming great friends and participating at future hackathons together.
 
 # Building
 
 Firstly, you need atleast Python 3.10 for this project.
 
-Make sure to install all of the dependencies listed in `requirements.txt` needed for this project.
+Make sure to install all of the dependencies listed in `requirements.txt` for this project.
 
 We recommend setting up a virtual environment before running the following commands. 
 
-You can run the following command to do so:
+You can run the following commands to do so:
 
-```
-pip install -r requirements.txt
+```bash
+python -m venv venv
 ```
 
-Then,
-
+MacOS/Linux
+```bash
+source venv/bin/activate
 ```
+Windows:
+```bash
+venv\Scripts\activate
+```
+
+
+To build, first clone the project:
+```bash
 git clone https://github.com/arvinmefsha/kinemo
 ```
 
+```bash
+# Then install all dependencies with:
 
-Finally, to run:
-```
+pip install -r requirements.txt
+
+# Finally, to run:
 python main.py
 ```
 
@@ -38,34 +52,32 @@ Stand a few feet away from the center of the camera. To control the cursor, use 
 
 ## Inspiration
 
-Our inspiration was wanting to have fun with friends! We thought doing augmented reality with pose estimation would be a great way to make games interactive and physical. We also wanted some intellectual stimulation so we invented our own boxing game as well!
+We started off making a boxing motion tracker with the intention of creating real time AI feedback. It slowly evolved into feeling more like a game, so we decided to work towards that instead.
 
-## What it does
+Eventually, we realized we could turn this into something a bigger. Then the idea for a whole console-like experience with multiple games was born. 
 
-Our project is a motion-controlled gaming platform that only requires a webcam. Two players can have fun with three different physically active games. The main menu can be navigated using hand gestures to select either Boxing, Flying Fruits, or Reaction Time.
+## Description
 
-For the Boxing game, each player can either punch, kick, or weave. Each player starts with twelve hearts. A landed punch deals 1 damage and a landed kick deals 3 damage. However, if the other player manages to weave in less than 0.75 seconds, they take no damage and the attacker gets stunned for 1.25 seconds. If the other player manages to weave between 0.75 and 1.25 seconds, no damage is taken and nobody is stunned. Finally, to prevent players from spamming attacks, there is a 0.5 second cooldown on each attack.
+Our project is a motion-controlled gaming platform that only needs a webcam. Two players can compete in three different active games. The main menu is controlled with hand gestures, letting players choose between Boxing, Flying Fruits, or Reaction Time.
 
-For Flying Fruits, the players compete to see who can get the highest score in 30 seconds. In order to chop a fruit, your hand must slice through it at a decently vast velocity. Chopping a fruit gives +1 point while chopping a bomb gives -5 points. The angle you slice it at is also incorporated into the animation.
+In Boxing, players can punch, kick, or weave. Each player starts with 12 hearts. A punch takes away 1 heart, and a kick takes away 3. If the opponent weaves within 0.75 seconds, they avoid damage and the attacker is stunned for 1.25 seconds. If the weave happens between 0.75 and 1.25 seconds, no one takes damage or gets stunned. To stop spamming, each attack has a 0.5 second cooldown.
 
-For Reaction Time, the players compete to see who can lift both of their hands up the fastest after seeing a green light. If a player raises their hand during the red light or prematurely, they have "cheated" and the other player gets a point.
+In Flying Fruits, players have 30 seconds to slice as many fruits as possible. Moving your hand quickly through a fruit earns +1 point, while slicing a bomb loses 5 points. The angle of the slice is also shown in the animation.
 
-## How we built it
+In Reaction Time, players race to raise both hands after a green light appears. If a player moves too early or during the red light, they “cheat,” and the other player gets a point.
 
-Our gaming platform was developed in VS Code with Python with OpenCV, MediaPipe, Pygame, and NumPy. Python is used on the backend to handle application management. OpenCV is used to process the video webcams real time. Next, Google's MediaPipe framework helped us with the pose estimation and body tracking for all of the games. Afterwards, we used NumPy for position analysis, vector modelling, and velocity/acceleration calculations. Finally, Pygame helped us with the visuals, in particular for fruit ninja for chopping the fruits based on the angle we chop it at. It also is used to play all of our sound effects.
+## Overview
 
-## Challenges we ran into
+Our gaming platform was built in VS Code using Python along with OpenCV, MediaPipe, Pygame, and NumPy. Python manages the overall application, while OpenCV handles real-time video processing from the webcam. MediaPipe provides pose estimation and body tracking, and NumPy is used for mathematical operations like position, vectors, and motion calculations. Pygame is responsible for rendering visuals and handling audio effects.
 
-The biggest challenge we had was detecting various movements without detecting noise of the background. While detecting punches, we modeled the arm as a segmented kinematic chain. The punch was only detected if the elbow angle was greater than 150 degrees and the shoulder joint had a somewhat open angle. This multi-joint approach makes waving your arms around or other arm movement not trigger a punch. For kick detection, we tracked the player's ankle as it moved across the hip's horizontal plane to capture the arc of the leg swing upwards. Finally, weave detection made us calculate core stability and rotational inertia. We also angular deviation from vertical axis and started a weave when this was more than the 45 degree figure. Hysteresis is avoided with a control system that has the neutral, upright position.
+## Challenges
 
-## Accomplishments that we're proud of
+* Picking up different movements without interference from background noise.
+* Problems with our original hand tracking system until we found a great [library](https://github.com/small-cactus/handTrack) for hand tracking. Since it was more of a general purpose module that controlled the computer's cursor, we had to integrate it to work within our window and user interface. 
 
-We started off using mouse and keyboard navigation to go between the games in the menu navigation. However, we decided to change it to make the experience more immersive so we used hand tracking navigation. We made the hand tracking smoother using linear interpolation using the NumPy library. Finally, we made it robust by making it resistance to environmental motions.
+## Future Goals
 
-## What we learned
+* More games! Some ideas we had were a game like Just Dance or basketball. 
+* Adding hand control priority. Basically, we want to give one player the "magic touch" for controlling the user interface.
+* Revamping the UI.
 
-This project helped us learn about performance optimization strategies. Our main approach was using a state-machine conditional processing in our GameManager class which chooses the least demanding motion-tracking model for the task. The various states reduced the computational requirements and standardized all incoming video that are compatible with multiple device cameras. This allowed a stable, high frame rate across all games for a responsive motion-controlled experience!
-
-## What's next for Kinemo
-
-In the future, we would first like to add real-time matchmaking across the internet so you can play with someone anywhere. Next, we want to add a text-to-speech feature so our boxing coach can give feedback on punch placement and kick timing. Finally, we want to add other games like Simon Says and Just Dance for physical and intellectual stimulation!
