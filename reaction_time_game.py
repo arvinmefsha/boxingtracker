@@ -10,27 +10,26 @@ class ReactionTimeGame(Game):
         self.mp_pose = mp.solutions.pose
         self.mp_drawing = mp.solutions.drawing_utils
         self.pose = self.mp_pose.Pose(min_detection_confidence=0.5, min_tracking_confidence=0.5)
-        self.pose_data = {'p1': None, 'p2': None}  # Store pose data
+        self.pose_data = {'p1': None, 'p2': None}
         
-        self.state = 'IDLE'  # IDLE, WAITING, GREEN, RESULTS
+        self.state = 'IDLE'
         self.start_time = 0
         self.green_time = 0
         self.delay = 0
         self.p1_time = None
         self.p2_time = None
-        self.first_reaction_time = None  # Time when first player reacted
-        self.reaction_timeout = 1  # 1 second after first reaction
+        self.first_reaction_time = None
+        self.reaction_timeout = 1
         self.p1_cheated = False
         self.p2_cheated = False
         self.p1_wins = 0
         self.p2_wins = 0
         self.raising_hands = False
-        self.target_wins = 3  # First to 3 wins
-        self.round_completed = False  # Flag to prevent re-incrementing wins
-        self.current_round_winner = None  # Cached winner for display (1, 2, or None for tie/incomplete)
+        self.target_wins = 3
+        self.round_completed = False
+        self.current_round_winner = None
 
     def reset(self):
-        """Reset game state."""
         self.state = 'IDLE'
         self.start_time = 0
         self.green_time = 0
@@ -46,61 +45,23 @@ class ReactionTimeGame(Game):
         self.pose_data = {'p1': None, 'p2': None}
 
     def reset_match(self):
-        """Reset the entire match (wins to 0)."""
         self.p1_wins = 0
         self.p2_wins = 0
         self.reset()
 
     def handle_key(self, key):
-        """Handle keyboard input for the game."""
         pose_data = self.pose_data
         if pose_data['p1'] is None or pose_data['p2'] is None:
             return
-        #p1_raised = self.is_raised(pose_data['p1'].pose_landmarks.landmark if pose_data['p1'] and pose_data['p1'].pose_landmarks else None)
-        #p2_raised = self.is_raised(pose_data['p2'].pose_landmarks.landmark if pose_data['p2'] and pose_data['p2'].pose_landmarks else None)
-    
-        #if p1_raised and p2_raised:
-            # if self.state == 'IDLE':
-            #     if self.p1_wins >= self.target_wins or self.p2_wins >= self.target_wins:
-            #         self.reset_match()  # Start new match if previous ended
-            #     else:
-            #         self.p1_time = None
-            #         self.p2_time = None
-            #         self.first_reaction_time = None
-            #         self.p1_cheated = False
-            #         self.p2_cheated = False
-            #         self.round_completed = False
-            #         self.current_round_winner = None
-            #         self.state = 'IDLE'
-            #         self.countdown_end = time.time() + 3  # 3 second countdown
-            #         self.delay = random.uniform(3, 5)
-            #         self.start_time = time.time()
-            # if self.state == 'RESULTS':
-            #     if self.p1_wins >= self.target_wins or self.p2_wins >= self.target_wins:
-            #         self.reset_match()  # Start new match
-            #     else:
-            #         # Start next round
-            #         self.p1_time = None
-            #         self.p2_time = None
-            #         self.first_reaction_time = None
-            #         self.p1_cheated = False
-            #         self.p2_cheated = False
-            #         self.round_completed = False
-            #         self.current_round_winner = None
-            #         self.state = 'IDLE'
-            #         self.countdown_end = time.time() + 3  # 3 second countdown
-            #         self.delay = random.uniform(3, 5)
-            #         self.start_time = time.time()
 
     def determine_round_winner(self):
-        """Determine winner of the current round and update win counts."""
         if self.round_completed:
-            return self.current_round_winner  # Return cached value
+            return self.current_round_winner
         
         if self.p1_cheated and self.p2_cheated:
             self.round_completed = True
             self.current_round_winner = None
-            return None  # Tie, no win
+            return None
         elif self.p1_cheated:
             self.p2_wins += 1
             self.round_completed = True
@@ -114,7 +75,7 @@ class ReactionTimeGame(Game):
         elif self.p1_time is None and self.p2_time is None:
             self.round_completed = True
             self.current_round_winner = None
-            return None  # Incomplete, no win
+            return None
         elif self.p1_time is None:
             self.p2_wins += 1
             self.round_completed = True
@@ -139,10 +100,9 @@ class ReactionTimeGame(Game):
             else:
                 self.round_completed = True
                 self.current_round_winner = None
-                return None  # Tie, no win
+                return None
 
     def is_raised(self, landmarks):
-        """Check if both hands are raised above shoulders."""
         if not landmarks:
             return False
         
@@ -160,7 +120,6 @@ class ReactionTimeGame(Game):
         return False
 
     def update(self, pose_data, dt):
-        """Update game state."""
         self.pose_data = pose_data
         current_time = time.time()
         if self.state == "IDLE":
@@ -180,56 +139,49 @@ class ReactionTimeGame(Game):
                     else:
                         self.reset()
                     self.state = 'STARTING'
-                    self.countdown_end = current_time + 5  # 5 second countdown
+                    self.countdown_end = current_time + 5
                     self.delay = random.uniform(3, 5)
                     self.start_time = current_time
                     self.raising_hands = False
                     self.started_raising_hands = None
-            # Wait for both players to raise hands (handled in handle_key)
         elif self.state == 'STARTING':
             if (current_time-self.countdown_end) >= 0:
                 self.state = "WAITING"
                 self.start_time = current_time
         elif self.state == 'WAITING':
-            # Check for cheating (hands raised during waiting)
             p1_raised = self.is_raised(pose_data['p1'].pose_landmarks.landmark if pose_data['p1'] and pose_data['p1'].pose_landmarks else None)
             p2_raised = self.is_raised(pose_data['p2'].pose_landmarks.landmark if pose_data['p2'] and pose_data['p2'].pose_landmarks else None)
             
             if p1_raised:
                 self.p1_cheated = True
                 self.state = 'RESULTS'
-                return  # End immediately
+                return
             if p2_raised:
                 self.p2_cheated = True
                 self.state = 'RESULTS'
-                return  # End immediately
+                return
             
             if current_time - self.start_time >= self.delay:
                 self.state = 'GREEN'
                 self.green_time = current_time
         
         elif self.state == 'GREEN':
-            # Check Player 1
             if self.p1_time is None and self.is_raised(pose_data['p1'].pose_landmarks.landmark if pose_data['p1'] and pose_data['p1'].pose_landmarks else None):
                 self.p1_time = current_time - self.green_time
                 if self.first_reaction_time is None:
                     self.first_reaction_time = current_time
             
-            # Check Player 2
             if self.p2_time is None and self.is_raised(pose_data['p2'].pose_landmarks.landmark if pose_data['p2'] and pose_data['p2'].pose_landmarks else None):
                 self.p2_time = current_time - self.green_time
                 if self.first_reaction_time is None:
                     self.first_reaction_time = current_time
             
-            # End immediately if both have reacted
             if self.p1_time is not None and self.p2_time is not None:
                 self.state = 'RESULTS'
-            # Or timeout after first reaction if only one has reacted
             elif self.first_reaction_time is not None and current_time - self.first_reaction_time > self.reaction_timeout:
                 self.state = 'RESULTS'
         
         elif self.state == 'RESULTS':
-            # Determine winner only once per round
             if not self.round_completed:
                 self.determine_round_winner()
             
@@ -249,63 +201,52 @@ class ReactionTimeGame(Game):
                     else:
                         self.reset()
                     self.state = 'STARTING'
-                    self.countdown_end = current_time + 2  # 3 second countdown
+                    self.countdown_end = current_time + 2
                     self.delay = random.uniform(3, 5)
                     self.start_time = current_time
                     self.raising_hands = False
                     self.started_raising_hands = None
             
     def render(self, frame):
-        """Render the reaction time game visuals."""
         height, width, _ = frame.shape
         half_width = width // 2
         image_p1 = frame[:, :half_width]
         image_p2 = frame[:, half_width:]
-        # Draw landmarks for Player 1
         if self.pose_data['p1'] and self.pose_data['p1'].pose_landmarks:
             self.mp_drawing.draw_landmarks(
                 image_p1, self.pose_data['p1'].pose_landmarks, self.mp_pose.POSE_CONNECTIONS,
                 landmark_drawing_spec=self.mp_drawing.DrawingSpec(color=(255, 0, 0), thickness=2, circle_radius=2),
                 connection_drawing_spec=self.mp_drawing.DrawingSpec(color=(200, 100, 0), thickness=2, circle_radius=2)
             )
-        # Draw landmarks for Player 2
         if self.pose_data['p2'] and self.pose_data['p2'].pose_landmarks:
             self.mp_drawing.draw_landmarks(
                 image_p2, self.pose_data['p2'].pose_landmarks, self.mp_pose.POSE_CONNECTIONS,
                 landmark_drawing_spec=self.mp_drawing.DrawingSpec(color=(0, 0, 255), thickness=2, circle_radius=2),
                 connection_drawing_spec=self.mp_drawing.DrawingSpec(color=(0, 100, 200), thickness=2, circle_radius=2)
             )
-        # Combine images back
         frame[:, :half_width] = image_p1
         frame[:, half_width:] = image_p2
-        # Resize to 1920x1080
         frame = cv2.resize(frame, (1920, 1080))
-        # Draw divider line
         cv2.line(frame, (960, 0), (960, 1080), (255, 255, 255), 2)
-        # Draw status bar at top
         if self.state in ['IDLE', 'WAITING', 'RESULTS']:
-            bar_color = (0, 0, 255)  # Red
-        else:  # GREEN
-            bar_color = (0, 255, 0)  # Green
+            bar_color = (0, 0, 255)
+        else:
+            bar_color = (0, 255, 0)
         cv2.rectangle(frame, (0, 0), (1920, 50), bar_color, -1)
-        # Display instructions or results
         if self.state == 'IDLE':
             cv2.putText(frame, "Both players must raise there hands to start", (500, 500), cv2.FONT_HERSHEY_SIMPLEX, 1.5, (255, 255, 255), 3, cv2.LINE_AA)
         elif self.state == 'STARTING':
             countdown = int(self.countdown_end-time.time())
             cv2.putText(frame, f"Get Ready! {countdown}", (800, 500), cv2.FONT_HERSHEY_SIMPLEX, 1.5, (255, 255, 255), 3, cv2.LINE_AA)
         elif self.state == 'WAITING':
-            # No countdown display, just red bar
             pass
         elif self.state == 'GREEN':
-            # Green bar
             pass
         elif self.state == 'RESULTS':
             round_winner = self.current_round_winner
             match_over = self.p1_wins >= self.target_wins or self.p2_wins >= self.target_wins
             
             if match_over:
-                # Black background for final text
                 cv2.rectangle(frame, (500, 200), (1420, 400), (0, 0, 0), -1)
                 
                 if self.p1_wins >= self.target_wins:
@@ -316,7 +257,6 @@ class ReactionTimeGame(Game):
                 cv2.putText(frame, f"Final Score: P1 {self.p1_wins} - P2 {self.p2_wins}", (650, 350), cv2.FONT_HERSHEY_SIMPLEX, 1, (255, 255, 255), 2, cv2.LINE_AA)
                 cv2.putText(frame, "Raise hands again for new match", (700, 500), cv2.FONT_HERSHEY_SIMPLEX, 1, (200, 200, 200), 2, cv2.LINE_AA)
             else:
-                # Black background for round text and score
                 cv2.rectangle(frame, (500, 200), (1420, 450), (0, 0, 0), -1)
                 
                 if round_winner == 1:
