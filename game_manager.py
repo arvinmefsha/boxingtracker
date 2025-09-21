@@ -97,6 +97,7 @@ class GameManager:
 
             if key == ord('m') and not isinstance(self.current_game, MainMenu):
                 print("Returning to menu...")
+                pygame.mixer.music.stop()
                 self.current_game = MainMenu()
 
         # Final cleanup
