@@ -4,7 +4,7 @@ import cv2
 import mediapipe as mp
 import sys
 import time
-
+import pygame
 # Import ALL your game state classes
 from main_menu import MainMenu
 from fruit_ninja_game import FruitNinjaGame
