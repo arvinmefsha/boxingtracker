@@ -51,9 +51,7 @@ class GameManager:
                     cursor_landmark = hand_landmarks.landmark[self.mp_hands.HandLandmark.INDEX_FINGER_TIP]
                     hand_data['cursor_pos'] = (cursor_landmark.x * frame.shape[1], cursor_landmark.y * frame.shape[0])
                 self.current_game.hand_data = hand_data
-
-            ## MODIFIED: Combined logic for all Pose-based games
-            elif isinstance(self.current_game, (BoxingGame, ReactionTimeGame)):
+            elif isinstance(self.current_game, (BoxingGame, ReactionTimeGame, FruitNinjaGame)):
                 # Run the POSE model, since both games need it
                 height, width, _ = frame.shape
                 half_width = width // 2
