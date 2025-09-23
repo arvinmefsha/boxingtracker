@@ -44,6 +44,7 @@ class GameManager:
                     hand_data['found'] = True
                     cursor_landmark = hand_landmarks.landmark[self.mp_hands.HandLandmark.INDEX_FINGER_TIP]
                     hand_data['cursor_pos'] = (cursor_landmark.x * frame.shape[1], cursor_landmark.y * frame.shape[0])
+                
                 self.current_game.hand_data = hand_data
             elif isinstance(self.current_game, (BoxingGame, ReactionTimeGame, FruitNinjaGame)):
                 height, width, _ = frame.shape

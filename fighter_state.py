@@ -7,7 +7,6 @@ class FighterState:
         self.right_punch_count = 0
         self.prev_right_wrist = None
         self.prev_shoulder_wrist_dist = 0
-       
         # Right Leg
         self.right_leg_state = 'IDLE'
         self.right_kick_count = 0

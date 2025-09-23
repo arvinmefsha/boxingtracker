@@ -63,6 +63,7 @@ class FruitNinjaGame(Game):
         print("Loading assets...")
         self.fruit_images = self.load_fruit_images('assets')
         self.bomb_image = cv2.imread(os.path.join('assets', 'bomb.png'), cv2.IMREAD_UNCHANGED)
+        
         if self.bomb_image is None:
             print("\n--- ERROR: Failed to load 'bomb.png'. Make sure it's in the 'assets' folder. ---\n")
             sys.exit(1)

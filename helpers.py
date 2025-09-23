@@ -57,6 +57,7 @@ def calculate_distance(p1, p2):
 def calculate_velocity(p1, p2, dt):
     if dt == 0:
         return 0
+    
     distance = calculate_distance(p1, p2)
     return distance / dt
 

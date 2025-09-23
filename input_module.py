@@ -7,6 +7,7 @@ class InputModule:
         if not self.cap.isOpened():
             print("Error: Cannot open camera")
             exit()
+        
         self.cap.set(cv2.CAP_PROP_FRAME_WIDTH, 1920)
         self.cap.set(cv2.CAP_PROP_FRAME_HEIGHT, 1080)
         self.mp_pose = mp.solutions.pose

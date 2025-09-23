@@ -1,4 +1,4 @@
-# main_menu.py
+# main menu stuff
 
 import cv2
 import time

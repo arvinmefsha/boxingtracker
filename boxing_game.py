@@ -225,7 +225,6 @@ class BoxingGame(Game):
             both_hands_above_waist and
             (now - last_ts) >= cooldown_s
         )
-
         if current_state == "IDLE":
             if can_count_now:
                 setattr(state, punch_count_attr, getattr(state, punch_count_attr) + 1)
@@ -272,6 +271,7 @@ class BoxingGame(Game):
     def detect_weave(self, state, LH, LS, RH, RS, angle_from_vertical_thresh: float = 45.0, hysteresis: float = 3.0):
         debug = {}
         did_weave = False
+        
         self._ensure_weave_fields(state)
 
         def tilt_from_vertical(hip, shoulder):
