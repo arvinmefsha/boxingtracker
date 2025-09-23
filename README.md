@@ -2,11 +2,11 @@
 
 ![alt text](assets/logo.png)
 
-Kinemo is a motion-controlled gaming console that was created under 48 hours at [PennApps](https://pennapps.com/) 2025. It took first place overall in the competition.  
+Kinemo is a motion-controlled gaming console that was created under 36 hours at [PennApps](https://pennapps.com/) 2025. It took first place overall in the competition.  
 
 It leverages everyday laptop cameras(as opposed to custom hardware like the Xbox Kinect and the Wii) and modern libraries such as OpenCV and Mediapipe to accurately track body movement. 
 
-Our makeshift team is incredibly proud of what we accomplished under 48 hours, and we look forward to becoming great friends and participating at future hackathons together.
+Our makeshift team is incredibly proud of what we accomplished under 36 hours, and we look forward to becoming great friends and participating at future hackathons together.
 
 # Building
 
